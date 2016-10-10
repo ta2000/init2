@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <assert.h>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -14,6 +15,8 @@ struct Engine
 {
     GLFWwindow* window;
     VkInstance instance;
+    char* extensionNames[64];
+    uint32_t extensionCount;
     VkDebugReportCallbackEXT callback;
     VkSurfaceKHR surface;
     VkQueue graphicsQueue;
@@ -47,9 +50,19 @@ void EngineRun(struct Engine* self)
 }
 void EngineDestroy(struct Engine* self)
 {
+    uint32_t i;
+
+    // Free extensions
+    for (i=0; i<self->extensionCount; i++)
+    {
+        free(self->extensionNames[i]);
+    }
+
+    // Destroy all imageviews
+    // TODO: Destroy as many image views as there are created
+    // in case application fails in the middle of createing imageviews
     if (self->imageViews != NULL)
     {
-        uint32_t i;
         for (i=0; i<self->imageCount; i++)
         {
             vkDestroyImageView(
@@ -59,6 +72,7 @@ void EngineDestroy(struct Engine* self)
             );
         }
     }
+
     vkDestroySwapchainKHR(self->device, self->swapChain, NULL);
     vkDestroyDevice(self->device, NULL);
     vkDestroyInstance(self->instance, NULL);
@@ -84,7 +98,7 @@ _Bool checkValidationSupport(
     uint32_t validationLayerCount,
     const char** validationLayers
 );
-const char** getRequiredExtensions(uint32_t* extensionCount);
+void getRequiredExtensions(struct Engine* engine);
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugReportFlagsEXT flags,
     VkDebugReportObjectTypeEXT objType,
@@ -96,12 +110,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     void* userData
 );
 void setupDebugCallback(struct Engine* engine);
-VkResult createDebugReportCallbackEXT(
-    VkInstance* instance,
-    const VkDebugReportCallbackCreateInfoEXT* pCreateInfo,
-    const VkAllocationCallbacks* pAllocator,
-    VkDebugReportCallbackEXT* pCallback
-);
 void createSurface(struct Engine* engine);
 void getPhysicalDevice(struct Engine* engine);
 _Bool isDeviceSuitable(struct Engine* engine, VkPhysicalDevice* physicalDevice);
@@ -158,13 +166,13 @@ int main() {
 
     struct Engine engine;
     EngineInit(&engine, window);
-    setupDebugCallback(&engine);
     createInstance(&engine);
+    setupDebugCallback(&engine);
     createSurface(&engine);
     getPhysicalDevice(&engine);
     createLogicalDevice(&engine);
     createSwapChain(&engine);
-    //createImageViews(&engine);
+    createImageViews(&engine);
 
     EngineRun(&engine);
 
@@ -193,10 +201,13 @@ void createInstance(struct Engine* engine)
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
 
-    uint32_t extensionCount;
-    const char** extensions = getRequiredExtensions(&extensionCount);
-    createInfo.enabledExtensionCount = extensionCount;
-    createInfo.ppEnabledExtensionNames = extensions;
+    getRequiredExtensions(engine);
+    /*uint32_t i;
+    for (i=0; i<engine->extensionCount; i++)
+        printf("%s\n", engine->extensionNames[i]);*/
+    createInfo.enabledExtensionCount = engine->extensionCount;
+    createInfo.ppEnabledExtensionNames =
+        (const char* const*)engine->extensionNames;
 
     const char* validationLayers[] = {"VK_LAYER_LUNARG_standard_validation"};
     uint32_t validationLayerCount =
@@ -205,6 +216,7 @@ void createInstance(struct Engine* engine)
     if (validationEnabled &&
         checkValidationSupport(validationLayerCount, validationLayers))
     {
+        printf("Validation layers supported.\n");
         createInfo.enabledLayerCount = validationLayerCount;
         createInfo.ppEnabledLayerNames = validationLayers;
     }
@@ -260,37 +272,51 @@ _Bool checkValidationSupport(uint32_t validationLayerCount, const char** validat
     return 1;
 }
 
-const char** getRequiredExtensions(uint32_t* extensionCount)
+void getRequiredExtensions(struct Engine* engine)
 {
-    const char** extensions;
-
-    uint32_t glfwExtensionCount;
     const char** glfwExtensions;
+    uint32_t glfwExtensionCount;
     glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-    extensions = malloc(glfwExtensionCount * sizeof(*glfwExtensions) + sizeof(VK_EXT_DEBUG_REPORT_EXTENSION_NAME));
-    *extensionCount = glfwExtensionCount+1;
 
     uint32_t i;
     for (i=0; i<glfwExtensionCount; i++)
     {
-        extensions[i] = glfwExtensions[i];
+        engine->extensionNames[i] = malloc(strlen(glfwExtensions[i]));
+        strcpy(engine->extensionNames[i], glfwExtensions[i]);
     }
-    extensions[i] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
+    engine->extensionNames[i] =
+        malloc(strlen(VK_EXT_DEBUG_REPORT_EXTENSION_NAME));
+    strcpy(engine->extensionNames[i], VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
 
-    return extensions;
+    engine->extensionCount = i+1;
 }
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugReportFlagsEXT flags,
     VkDebugReportObjectTypeEXT objType,
     uint64_t obj,
     size_t location,
     int32_t code,
-    const char* layerPrefix,
-    const char* msg,
-    void* userData)
+    const char* pLayerPrefix,
+    const char* pMsg,
+    void* pUserData)
 {
-    fprintf(stderr, "%s\n", msg);
+    char* message = malloc(strlen(pMsg) + 100);
+    assert(message);
+
+    if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
+        sprintf(message, "Error from %s, code %d: %s.\n",
+                pLayerPrefix, code, pMsg);
+    else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+        sprintf(message, "Warning from %s, code %d: %s.\n",
+                pLayerPrefix, code, pMsg);
+    else
+        return VK_FALSE;
+
+    fprintf(stderr, "%s\n", message);
+
+    free(message);
+
     return VK_FALSE;
 }
 
@@ -303,15 +329,24 @@ void setupDebugCallback(struct Engine* engine)
     createInfo.pNext = NULL;
     createInfo.flags =
         VK_DEBUG_REPORT_ERROR_BIT_EXT |
-        VK_DEBUG_REPORT_WARNING_BIT_EXT |
-        VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+        VK_DEBUG_REPORT_WARNING_BIT_EXT;
     createInfo.pfnCallback = &debugCallback;
     createInfo.pUserData = NULL;
 
-    VkResult result;
-    result = createDebugReportCallbackEXT(
-        &(engine->instance),
-        &(createInfo),
+    PFN_vkCreateDebugReportCallbackEXT func;
+    func = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(
+        engine->instance,
+        "vkCreateDebugReportCallbackEXT"
+    );
+    if (!func)
+    {
+        printf("Failed to find function vkCreateDebugReportCallbackEXT.\n");
+        exit(-1);
+    }
+
+    VkResult result = func(
+        engine->instance,
+        &createInfo,
         NULL,
         &(engine->callback)
     );
@@ -321,25 +356,6 @@ void setupDebugCallback(struct Engine* engine)
         fprintf(stderr, "Failed to set up debug callback.\n");
         exit(-1);
     }
-}
-
-VkResult createDebugReportCallbackEXT(
-    VkInstance* instance,
-    const VkDebugReportCallbackCreateInfoEXT* pCreateInfo,
-    const VkAllocationCallbacks* pAllocator,
-    VkDebugReportCallbackEXT* pCallback)
-{
-    // The returned function pointer is of type PFN_vkVoidFunction, and must be
-    // cast to the type of the command being queried. (vkspec)
-    PFN_vkCreateDebugReportCallbackEXT func;
-    func = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(
-        *instance, "vkDebugReportCallbackEXT"
-    );
-
-    if (func != NULL)
-        return func(*instance, pCreateInfo, pAllocator, pCallback);
-    else
-        return VK_ERROR_EXTENSION_NOT_PRESENT;
 }
 
 void createSurface(struct Engine* engine)
@@ -874,11 +890,7 @@ void createImageViews(struct Engine* engine)
         );
         if (result != VK_SUCCESS)
         {
-            fprintf(
-                stderr,
-                "Failed to create image view %d. Error code: %d\n",
-                 i, result
-            );
+            fprintf(stderr, "Failed to create image view %d.\n", i);
             exit(-1);
         }
     }
