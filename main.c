@@ -26,11 +26,11 @@ struct Engine
     VkPhysicalDevice physicalDevice;
     VkDevice device;
     VkSwapchainKHR swapChain;
-    VkImage* swapChainImages;
     uint32_t imageCount;
+    VkImage* swapChainImages;
+    VkImageView* imageViews;
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
-    VkImageView* imageViews;
 };
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
@@ -179,7 +179,7 @@ int main() {
     getPhysicalDevice(&engine);
     createLogicalDevice(&engine);
     createSwapChain(&engine);
-    //createImageViews(&engine);
+    createImageViews(&engine);
 
     EngineRun(&engine);
 
@@ -887,7 +887,7 @@ void createImageViews(struct Engine* engine)
     {
         VkImageViewCreateInfo createInfo;
         createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        createInfo.image = *(engine->swapChainImages + (i*sizeof(*engine->swapChainImages)));
+        createInfo.image = engine->swapChainImages[i];
         createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         createInfo.format = engine->swapChainImageFormat;
         createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -905,7 +905,7 @@ void createImageViews(struct Engine* engine)
             engine->device,
             &createInfo,
             NULL,
-            engine->imageViews + (i*sizeof(*(engine->imageViews)))
+            &(engine->imageViews[i])
         );
         if (result != VK_SUCCESS)
         {
