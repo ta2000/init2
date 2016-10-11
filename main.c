@@ -17,7 +17,9 @@ struct Engine
     VkInstance instance;
     char* extensionNames[64];
     uint32_t extensionCount;
-    VkDebugReportCallbackEXT callback;
+    VkDebugReportCallbackEXT debugCallback;
+    PFN_vkCreateDebugReportCallbackEXT createDebugCallback;
+    PFN_vkDestroyDebugReportCallbackEXT destroyDebugCallback;
     VkSurfaceKHR surface;
     VkQueue graphicsQueue;
     VkQueue presentQueue;
@@ -75,6 +77,11 @@ void EngineDestroy(struct Engine* self)
 
     vkDestroySwapchainKHR(self->device, self->swapChain, NULL);
     vkDestroyDevice(self->device, NULL);
+    self->destroyDebugCallback(
+        self->instance,
+        self->debugCallback,
+        NULL
+    );
     vkDestroyInstance(self->instance, NULL);
 }
 
@@ -172,7 +179,7 @@ int main() {
     getPhysicalDevice(&engine);
     createLogicalDevice(&engine);
     createSwapChain(&engine);
-    createImageViews(&engine);
+    //createImageViews(&engine);
 
     EngineRun(&engine);
 
@@ -202,9 +209,6 @@ void createInstance(struct Engine* engine)
     createInfo.pApplicationInfo = &appInfo;
 
     getRequiredExtensions(engine);
-    /*uint32_t i;
-    for (i=0; i<engine->extensionCount; i++)
-        printf("%s\n", engine->extensionNames[i]);*/
     createInfo.enabledExtensionCount = engine->extensionCount;
     createInfo.ppEnabledExtensionNames =
         (const char* const*)engine->extensionNames;
@@ -216,7 +220,6 @@ void createInstance(struct Engine* engine)
     if (validationEnabled &&
         checkValidationSupport(validationLayerCount, validationLayers))
     {
-        printf("Validation layers supported.\n");
         createInfo.enabledLayerCount = validationLayerCount;
         createInfo.ppEnabledLayerNames = validationLayers;
     }
@@ -274,21 +277,26 @@ _Bool checkValidationSupport(uint32_t validationLayerCount, const char** validat
 
 void getRequiredExtensions(struct Engine* engine)
 {
+    // Get OS specific extensions from glfw
     const char** glfwExtensions;
     uint32_t glfwExtensionCount;
     glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
+    // Copy glfwExtensions
     uint32_t i;
     for (i=0; i<glfwExtensionCount; i++)
     {
         engine->extensionNames[i] = malloc(strlen(glfwExtensions[i]));
         strcpy(engine->extensionNames[i], glfwExtensions[i]);
     }
+
+    // Append debug report extension name
     engine->extensionNames[i] =
         malloc(strlen(VK_EXT_DEBUG_REPORT_EXTENSION_NAME));
     strcpy(engine->extensionNames[i], VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+    i++;
 
-    engine->extensionCount = i+1;
+    engine->extensionCount = i;
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -305,10 +313,10 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     assert(message);
 
     if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
-        sprintf(message, "Error from %s, code %d: %s.\n",
+        sprintf(message, "Error from %s, code %d: %s.",
                 pLayerPrefix, code, pMsg);
     else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-        sprintf(message, "Warning from %s, code %d: %s.\n",
+        sprintf(message, "Warning from %s, code %d: %s.",
                 pLayerPrefix, code, pMsg);
     else
         return VK_FALSE;
@@ -333,22 +341,33 @@ void setupDebugCallback(struct Engine* engine)
     createInfo.pfnCallback = &debugCallback;
     createInfo.pUserData = NULL;
 
-    PFN_vkCreateDebugReportCallbackEXT func;
-    func = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(
-        engine->instance,
-        "vkCreateDebugReportCallbackEXT"
-    );
-    if (!func)
+    engine->createDebugCallback =
+        (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(
+            engine->instance,
+            "vkCreateDebugReportCallbackEXT"
+        );
+    if (!engine->createDebugCallback)
     {
-        printf("Failed to find function vkCreateDebugReportCallbackEXT.\n");
+        fprintf(stderr, "GetProcAddr vkCreateDebugReportCallback failed.\n");
         exit(-1);
     }
 
-    VkResult result = func(
+    engine->destroyDebugCallback =
+        (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(
+            engine->instance,
+            "vkDestroyDebugReportCallbackEXT"
+        );
+    if (!engine->destroyDebugCallback)
+    {
+        fprintf(stderr, "GetProcAddr vkDestroyDebugReportCallback failed.\n");
+        exit(-1);
+    }
+
+    VkResult result = engine->createDebugCallback(
         engine->instance,
         &createInfo,
         NULL,
-        &(engine->callback)
+        &(engine->debugCallback)
     );
 
     if (result != VK_SUCCESS)
