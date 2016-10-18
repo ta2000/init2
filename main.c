@@ -13,24 +13,44 @@ const _Bool validationEnabled = 1;
 
 struct Engine
 {
+    // Window
     GLFWwindow* window;
+
+    // Vulkan instance
     VkInstance instance;
+
+    // Validation layers
     char* extensionNames[64];
     uint32_t extensionCount;
     VkDebugReportCallbackEXT debugCallback;
     PFN_vkCreateDebugReportCallbackEXT createDebugCallback;
     PFN_vkDestroyDebugReportCallbackEXT destroyDebugCallback;
+
+    // Surface
     VkSurfaceKHR surface;
+
+    // Queues
     VkQueue graphicsQueue;
     VkQueue presentQueue;
+
+    // Physical/logical device
     VkPhysicalDevice physicalDevice;
     VkDevice device;
+
+    // Swapchain/images
     VkSwapchainKHR swapChain;
     uint32_t imageCount;
     VkImage* swapChainImages;
     VkImageView* imageViews;
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
+
+    // Render pass
+    VkRenderPass renderPass;
+
+    // Graphics pipeline
+    VkPipelineLayout pipelineLayout;
+    VkPipeline graphicsPipeline;
 };
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
@@ -59,6 +79,10 @@ void EngineDestroy(struct Engine* self)
     {
         free(self->extensionNames[i]);
     }
+
+    vkDestroyPipeline(self->device, self->graphicsPipeline, NULL);
+    vkDestroyPipelineLayout(self->device, self->pipelineLayout, NULL);
+    vkDestroyRenderPass(self->device, self->renderPass, NULL);
 
     // Destroy all imageviews
     // TODO: Destroy as many image views as there are created
@@ -149,6 +173,15 @@ _Bool queueFamilyComplete(struct QueueFamilyIndices* indices);
 void createLogicalDevice(struct Engine* engine);
 void createSwapChain(struct Engine* engine);
 void createImageViews(struct Engine* engine);
+void createRenderPass(struct Engine* engine);
+char* readFile(const char* fname, uint32_t* fsize);
+void createGraphicsPipeline(struct Engine* engine);
+void createShaderModule(
+    struct Engine* engine,
+    char* code,
+    uint32_t codeSize,
+    VkShaderModule* shaderModule
+);
 
 uint32_t min(uint32_t a, uint32_t b)
 {
@@ -171,19 +204,21 @@ int main() {
         NULL
     );
 
-    struct Engine engine;
-    EngineInit(&engine, window);
-    createInstance(&engine);
-    setupDebugCallback(&engine);
-    createSurface(&engine);
-    getPhysicalDevice(&engine);
-    createLogicalDevice(&engine);
-    createSwapChain(&engine);
-    createImageViews(&engine);
+    struct Engine* engine = malloc(sizeof(*engine));
+    EngineInit(engine, window);
+    createInstance(engine);
+    setupDebugCallback(engine);
+    createSurface(engine);
+    getPhysicalDevice(engine);
+    createLogicalDevice(engine);
+    createSwapChain(engine);
+    createImageViews(engine);
+    createRenderPass(engine);
+    createGraphicsPipeline(engine);
 
-    EngineRun(&engine);
+    EngineRun(engine);
 
-    EngineDestroy(&engine);
+    EngineDestroy(engine);
 
     // Close window
     glfwDestroyWindow(window);
@@ -198,6 +233,7 @@ void createInstance(struct Engine* engine)
 {
     VkApplicationInfo appInfo;
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.pNext = NULL;
     appInfo.pApplicationName = "Game";
     appInfo.applicationVersion = VK_MAKE_VERSION(1,0,0);
     appInfo.pEngineName = "No Engine";
@@ -206,6 +242,8 @@ void createInstance(struct Engine* engine)
 
     VkInstanceCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.flags = 0;
+    createInfo.pNext = NULL;
     createInfo.pApplicationInfo = &appInfo;
 
     getRequiredExtensions(engine);
@@ -250,18 +288,12 @@ _Bool checkValidationSupport(uint32_t validationLayerCount, const char** validat
     vkEnumerateInstanceLayerProperties(&availableLayerCount, availableLayers);
 
     uint32_t i, j;
-    const char* validationLayerName;
-    const char* availableLayerName;
     for (i=0; i<validationLayerCount; i++)
     {
         _Bool layerFound = 0;
-        validationLayerName = validationLayers[i];
         for (j=0; j<availableLayerCount; j++)
         {
-            availableLayerName =
-                (availableLayers + i*sizeof(*availableLayers))->layerName;
-
-            if (strcmp(validationLayerName, availableLayerName) == 0)
+            if (strcmp(validationLayers[i], availableLayers[j].layerName) == 0)
             {
                 layerFound = 1;
                 break;
@@ -286,13 +318,13 @@ void getRequiredExtensions(struct Engine* engine)
     uint32_t i;
     for (i=0; i<glfwExtensionCount; i++)
     {
-        engine->extensionNames[i] = malloc(strlen(glfwExtensions[i]));
+        engine->extensionNames[i] = malloc(strlen(glfwExtensions[i])+1);
         strcpy(engine->extensionNames[i], glfwExtensions[i]);
     }
 
     // Append debug report extension name
     engine->extensionNames[i] =
-        malloc(strlen(VK_EXT_DEBUG_REPORT_EXTENSION_NAME));
+        malloc(strlen(VK_EXT_DEBUG_REPORT_EXTENSION_NAME)+1);
     strcpy(engine->extensionNames[i], VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
     i++;
 
@@ -619,11 +651,8 @@ VkPresentModeKHR chooseSwapPresentMode(VkPresentModeKHR* availablePresentModes, 
     int i;
     for (i=0; i<presentModeCount; i++)
     {
-        VkPresentModeKHR* currentPresentMode;
-        currentPresentMode = availablePresentModes+(i*sizeof(*currentPresentMode));
-
-        if (*currentPresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
-            return *currentPresentMode;
+        if (availablePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
+            return availablePresentModes[i];
     }
 
     return VK_PRESENT_MODE_FIFO_KHR;
@@ -736,6 +765,8 @@ void createLogicalDevice(struct Engine* engine)
     {
         VkDeviceQueueCreateInfo queueCreateInfo;
         queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.flags = 0;
+        queueCreateInfo.pNext = NULL;
         queueCreateInfo.queueFamilyIndex = uniqueQueueFamilies[i];
         queueCreateInfo.queueCount = 1;
         queueCreateInfo.pQueuePriorities = &queuePriority;
@@ -745,6 +776,7 @@ void createLogicalDevice(struct Engine* engine)
     VkPhysicalDeviceFeatures deviceFeatures;
     VkDeviceCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    createInfo.flags = 0;
     createInfo.pQueueCreateInfos = queueCreateInfos;
     createInfo.queueCreateInfoCount = 2;
     createInfo.pEnabledFeatures = &deviceFeatures;
@@ -912,5 +944,293 @@ void createImageViews(struct Engine* engine)
             fprintf(stderr, "Failed to create image view %d.\n", i);
             exit(-1);
         }
+    }
+}
+
+void createRenderPass(struct Engine* engine)
+{
+    VkAttachmentDescription colorAttachment;
+    colorAttachment.format = engine->swapChainImageFormat;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorAttachmentRef;
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass;
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.flags = 0;
+    subpass.inputAttachmentCount = 0;
+    subpass.pInputAttachments = NULL;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+    subpass.pResolveAttachments = NULL;
+    subpass.pDepthStencilAttachment = NULL;
+    subpass.preserveAttachmentCount = 0;
+    subpass.pPreserveAttachments = NULL;
+
+    VkRenderPassCreateInfo renderPassCreateInfo;
+    renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassCreateInfo.pNext = NULL;
+    renderPassCreateInfo.attachmentCount = 1;
+    renderPassCreateInfo.pAttachments = &colorAttachment;
+    renderPassCreateInfo.subpassCount = 1;
+    renderPassCreateInfo.pSubpasses = &subpass;
+    renderPassCreateInfo.dependencyCount = 0;
+    renderPassCreateInfo.pDependencies = NULL;
+
+    VkResult result;
+    result = vkCreateRenderPass(
+        engine->device,
+        &renderPassCreateInfo,
+        NULL,
+        &(engine->renderPass)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create render pass.\n");
+        exit(-1);
+    }
+}
+
+char* readFile(const char* fname, uint32_t* fsize)
+{
+    FILE *fp = fopen(fname, "r");
+
+    if (!fp)
+    {
+        fprintf(stderr, "Failed to load file %s.\n", fname);
+        return NULL;
+    }
+
+    fseek(fp, 0L, SEEK_END);
+    uint32_t length = ftell(fp);
+    rewind(fp);
+
+    char* buffer = malloc(length);
+    fread(buffer, length, 1, fp);
+    *fsize = length;
+
+    fclose(fp);
+
+    return buffer;
+}
+
+void createGraphicsPipeline(struct Engine* engine)
+{
+    char* vertShaderFname = "shaders/vert.spv";
+    char* fragShaderFname = "shaders/frag.spv";
+    char* vertShader = NULL; uint32_t vertShaderSize;
+    char* fragShader = NULL; uint32_t fragShaderSize;
+
+    vertShader = readFile(vertShaderFname, &vertShaderSize);
+    if (!vertShader)
+    {
+        fprintf(stderr, "Reading file %s failed.\n", vertShaderFname);
+        exit(-1);
+    }
+
+    fragShader = readFile(fragShaderFname, &fragShaderSize);
+    if (!fragShader)
+    {
+        fprintf(stderr, "Reading file %s failed.\n", fragShaderFname);
+        free(vertShader);
+        exit(-1);
+    }
+
+    VkShaderModule vertShaderModule;
+    VkShaderModule fragShaderModule;
+    createShaderModule(engine, vertShader, vertShaderSize, &vertShaderModule);
+    createShaderModule(engine, fragShader, fragShaderSize, &fragShaderModule);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo;
+    VkGraphicsPipelineCreateInfo pipelineInfo;
+    VkPipelineVertexInputStateCreateInfo vertInputInfo;
+    VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo;
+    VkPipelineRasterizationStateCreateInfo rasterizationInfo;
+    VkPipelineColorBlendAttachmentState colorBlendAttachment;
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo;
+    //VkPipelineDepthStencilStateCreateInfo depthStencilInfo;
+    VkPipelineViewportStateCreateInfo viewportInfo;
+    VkPipelineMultisampleStateCreateInfo multisampleInfo;
+    //VkDynamicState dynamicStates[2];
+    //VkPipelineDynamicStateCreateInfo dyanamicStateInfo;
+
+    /*memset(&dynamicStates, 0, sizeof(dynamicStates));
+    dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
+    dynamicStates[1] = VK_DYNAMIC_STATE_LINE_WIDTH;
+    memset(&dynamicStateInfo, 0, sizeof(dynamicStateInfo));
+    dynamicStateInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicStateInfo.dynamicStateCount = 2;
+    dynamicStateInfo.pDynamicStates = dynamicStates;*/
+
+    memset(&pipelineInfo, 0, sizeof(pipelineInfo));
+    pipelineInfo.sType =
+        VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.layout = engine->pipelineLayout;
+    pipelineInfo.stageCount = 2;
+
+    memset(&vertInputInfo, 0, sizeof(vertInputInfo));
+    vertInputInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    memset(&inputAssemblyInfo, 0, sizeof(inputAssemblyInfo));
+    inputAssemblyInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    memset(&rasterizationInfo, 0, sizeof(rasterizationInfo));
+    rasterizationInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizationInfo.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizationInfo.depthClampEnable = VK_FALSE;
+    rasterizationInfo.rasterizerDiscardEnable = VK_FALSE;
+    rasterizationInfo.depthBiasEnable = VK_FALSE;
+    rasterizationInfo.depthBiasConstantFactor = 0.0f;
+    rasterizationInfo.depthBiasClamp = 0.0f;
+    rasterizationInfo.depthBiasSlopeFactor = 0.0f;
+    rasterizationInfo.lineWidth = 1.0f;
+
+    VkViewport viewport;
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = (float) engine->swapChainExtent.width;
+    viewport.height = (float) engine->swapChainExtent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor;
+    scissor.offset.x = 0;
+    scissor.offset.y = 0;
+    scissor.extent = engine->swapChainExtent;
+
+    memset(&viewportInfo, 0, sizeof(viewportInfo));
+    viewportInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportInfo.viewportCount = 1;
+    viewportInfo.pViewports = &viewport;
+    viewportInfo.scissorCount = 1;
+    viewportInfo.pScissors = &scissor;
+
+    memset(&multisampleInfo, 0, sizeof(multisampleInfo));
+    multisampleInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampleInfo.sampleShadingEnable = VK_FALSE;
+    multisampleInfo.minSampleShading = 1.0f;
+    multisampleInfo.pSampleMask = NULL;
+    multisampleInfo.alphaToCoverageEnable = VK_FALSE;
+    multisampleInfo.alphaToOneEnable = VK_FALSE;
+
+    memset(&pipelineLayoutInfo, 0, sizeof(pipelineLayoutInfo));
+    pipelineLayoutInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 0;
+    pipelineLayoutInfo.pSetLayouts = NULL;
+    pipelineLayoutInfo.pushConstantRangeCount = 0;
+    pipelineLayoutInfo.pPushConstantRanges = 0;
+
+    if (vkCreatePipelineLayout(
+            engine->device,
+            &pipelineLayoutInfo,
+            NULL,
+            &(engine->pipelineLayout)
+    ) != VK_SUCCESS )
+    {
+        fprintf(stderr, "Failed to create pipeline layout.\n");
+        exit(-1);
+    }
+
+    memset(&colorBlendAttachment, 0, sizeof(colorBlendAttachment));
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT |
+        VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT |
+        VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstColorBlendFactor =
+        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.colorWriteMask = 0;
+
+    memset(&colorBlendInfo, 0, sizeof(colorBlendInfo));
+    colorBlendInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.logicOpEnable = VK_TRUE;
+    colorBlendInfo.logicOp = VK_LOGIC_OP_COPY;
+    colorBlendInfo.attachmentCount = 1;
+    colorBlendInfo.pAttachments = &colorBlendAttachment;
+    colorBlendInfo.blendConstants[0] = 0.0f;
+    colorBlendInfo.blendConstants[1] = 0.0f;
+    colorBlendInfo.blendConstants[2] = 0.0f;
+    colorBlendInfo.blendConstants[3] = 0.0f;
+
+    pipelineInfo.pVertexInputState = &vertInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
+    pipelineInfo.pTessellationState = NULL;
+    pipelineInfo.pViewportState = &viewportInfo;
+    pipelineInfo.pRasterizationState = &rasterizationInfo;
+    pipelineInfo.pMultisampleState = &multisampleInfo;
+    pipelineInfo.pDepthStencilState = NULL;
+    pipelineInfo.pColorBlendState = &colorBlendInfo;
+    pipelineInfo.pDynamicState = NULL;
+    pipelineInfo.layout = engine->pipelineLayout;
+    pipelineInfo.renderPass = engine->renderPass;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    if (vkCreateGraphicsPipelines(
+            engine->device,
+            VK_NULL_HANDLE,
+            1,
+            &pipelineInfo,
+            NULL,
+            &(engine->graphicsPipeline)
+    ) != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create graphics pipeline.\n");
+        exit(-1);
+    }
+
+    // Free memory, shader modules no longer needed
+    free(vertShader);
+    free(fragShader);
+    vkDestroyShaderModule(engine->device, vertShaderModule, NULL);
+    vkDestroyShaderModule(engine->device, fragShaderModule, NULL);
+}
+
+void createShaderModule(struct Engine* engine, char* code, uint32_t codeSize, VkShaderModule* shaderModule)
+{
+    VkShaderModuleCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = codeSize;
+    createInfo.pCode = (uint32_t*)code;
+
+    VkResult result;
+    result = vkCreateShaderModule(
+        engine->device,
+        &createInfo,
+        NULL,
+        shaderModule
+    );
+
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Shader module creation failed.\n");
+        exit(-1);
     }
 }
