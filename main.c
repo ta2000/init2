@@ -11,6 +11,21 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const _Bool validationEnabled = 1;
 
+struct QueueFamilyIndices
+{
+    int graphicsFamily;
+    int presentFamily;
+};
+
+struct SwapChainSupportDetails
+{
+    VkSurfaceCapabilitiesKHR capabilities;
+    VkSurfaceFormatKHR* formats;
+    uint32_t formatCount;
+    VkPresentModeKHR* presentModes;
+    uint32_t presentModeCount;
+};
+
 struct Engine
 {
     // Window
@@ -32,6 +47,7 @@ struct Engine
     // Queues
     VkQueue graphicsQueue;
     VkQueue presentQueue;
+    struct QueueFamilyIndices indices;
 
     // Physical/logical device
     VkPhysicalDevice physicalDevice;
@@ -44,6 +60,7 @@ struct Engine
     VkImageView* imageViews;
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
+    struct SwapChainSupportDetails swapChainDetails;
 
     // Render pass
     VkRenderPass renderPass;
@@ -80,9 +97,9 @@ void EngineDestroy(struct Engine* self)
         free(self->extensionNames[i]);
     }
 
-    vkDestroyPipeline(self->device, self->graphicsPipeline, NULL);
-    vkDestroyPipelineLayout(self->device, self->pipelineLayout, NULL);
-    vkDestroyRenderPass(self->device, self->renderPass, NULL);
+    //vkDestroyPipeline(self->device, self->graphicsPipeline, NULL);
+    //vkDestroyPipelineLayout(self->device, self->pipelineLayout, NULL);
+    //vkDestroyRenderPass(self->device, self->renderPass, NULL);
 
     // Destroy all imageviews
     // TODO: Destroy as many image views as there are created
@@ -99,7 +116,11 @@ void EngineDestroy(struct Engine* self)
         }
     }
 
-    vkDestroySwapchainKHR(self->device, self->swapChain, NULL);
+    free(self->swapChainDetails.formats);
+    free(self->swapChainDetails.presentModes);
+
+    //vkDestroySwapchainKHR(self->device, self->swapChain, NULL);
+    vkDestroySurfaceKHR(self->instance, self->surface, NULL);
     vkDestroyDevice(self->device, NULL);
     self->destroyDebugCallback(
         self->instance,
@@ -108,21 +129,6 @@ void EngineDestroy(struct Engine* self)
     );
     vkDestroyInstance(self->instance, NULL);
 }
-
-struct QueueFamilyIndices
-{
-    int graphicsFamily;
-    int presentFamily;
-};
-
-struct SwapChainSupportDetails
-{
-    VkSurfaceCapabilitiesKHR capabilities;
-    VkSurfaceFormatKHR* formats;
-    uint32_t formatCount;
-    VkPresentModeKHR* presentModes;
-    uint32_t presentModeCount;
-};
 
 void createInstance(struct Engine* engine);
 _Bool checkValidationSupport(
@@ -211,10 +217,10 @@ int main() {
     createSurface(engine);
     getPhysicalDevice(engine);
     createLogicalDevice(engine);
-    createSwapChain(engine);
-    createImageViews(engine);
-    createRenderPass(engine);
-    createGraphicsPipeline(engine);
+    //createSwapChain(engine);
+    //createImageViews(engine);
+    //createRenderPass(engine);
+    //createGraphicsPipeline(engine);
 
     EngineRun(engine);
 
@@ -445,14 +451,11 @@ void getPhysicalDevice(struct Engine* engine)
     vkEnumeratePhysicalDevices(engine->instance, &deviceCount, devices);
 
     uint32_t i;
-    VkPhysicalDevice* currentDevice;
     for (i=0; i<deviceCount; i++)
     {
-        currentDevice = devices+(i*sizeof(*currentDevice));
-
-        if (isDeviceSuitable(engine, currentDevice))
+        if (isDeviceSuitable(engine, &devices[i]))
         {
-            engine->physicalDevice = *currentDevice;
+            engine->physicalDevice = devices[i];
             break;
         }
     }
@@ -467,39 +470,19 @@ void getPhysicalDevice(struct Engine* engine)
     }
 }
 
+// Determines whether a physical device has proper support, returns true (1)
+// if it does and sets queue family indices of engine->indices
 _Bool isDeviceSuitable(struct Engine* engine, VkPhysicalDevice* physicalDevice)
 {
-    struct QueueFamilyIndices indices;
-    indices = findQueueFamilies(engine, physicalDevice);
+    // Device extensions
+    _Bool extensionsSupported = 0;
 
-    _Bool extensionsSupported = checkDeviceExtensionSupport(physicalDevice);
+    const char* deviceExtensions[] = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    };
+    uint32_t deviceExtensionCount;
+    deviceExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
 
-    _Bool swapChainAdequate = 0;
-    if (extensionsSupported)
-    {
-        struct SwapChainSupportDetails swapChainSupport;
-        swapChainSupport = querySwapChainSupport(engine, physicalDevice);
-        if (swapChainSupport.formats != NULL &&
-            swapChainSupport.presentModes != NULL)
-        {
-            swapChainAdequate = 1;
-        }
-        free(swapChainSupport.formats);
-        free(swapChainSupport.presentModes);
-    }
-
-    if (queueFamilyComplete(&indices) &&
-        extensionsSupported &&
-        swapChainAdequate)
-    {
-        return 1;
-    }
-
-    return 0;
-}
-
-_Bool checkDeviceExtensionSupport(VkPhysicalDevice* physicalDevice)
-{
     uint32_t extensionCount;
     vkEnumerateDeviceExtensionProperties(
         *physicalDevice,
@@ -507,10 +490,8 @@ _Bool checkDeviceExtensionSupport(VkPhysicalDevice* physicalDevice)
         &extensionCount,
         NULL
     );
-
     VkExtensionProperties* availableExtensions;
     availableExtensions = calloc(extensionCount, sizeof(*availableExtensions));
-
     vkEnumerateDeviceExtensionProperties(
         *physicalDevice,
         NULL,
@@ -518,45 +499,49 @@ _Bool checkDeviceExtensionSupport(VkPhysicalDevice* physicalDevice)
         availableExtensions
     );
 
-    const char* deviceExtensions[] = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    };
-    size_t deviceExtensionCount;
-    deviceExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
-
-    uint32_t i;
+    uint32_t i, j;
     for (i=0; i<deviceExtensionCount; i++)
     {
-        if (!extensionAvailable(
-                deviceExtensions[i],
-                availableExtensions,
-                extensionCount
-        ))
+        for (j=0; j<extensionCount; j++)
         {
-            fprintf(
-                stderr,
-                "Extension %s not supported.\n",
-                deviceExtensions[i]
-            );
-            exit(-1);
+            if (strcmp(
+                    deviceExtensions[i],
+                    availableExtensions->extensionName
+                ) == 0)
+            {
+                extensionsSupported = 1;
+                break;
+            }
+        }
+        if (extensionsSupported)
+            break;
+    }
+
+
+    // Swapchain
+    _Bool swapChainAdequate = 0;
+    if (extensionsSupported)
+    {
+        engine->swapChainDetails = querySwapChainSupport(
+            engine,
+            physicalDevice
+        );
+
+        if (engine->swapChainDetails.formats != NULL &&
+            engine->swapChainDetails.presentModes != NULL)
+        {
+            swapChainAdequate = 1;
         }
     }
 
-    return 1;
-}
+    // Queue families
+    engine->indices = findQueueFamilies(engine, physicalDevice);
 
-_Bool extensionAvailable(const char* extensionName, VkExtensionProperties* availableExtensions, int extensionCount)
-{
-    int i;
-    for (i=0; i<extensionCount; i++)
+    if (queueFamilyComplete(&(engine->indices)) &&
+        extensionsSupported &&
+        swapChainAdequate)
     {
-        VkExtensionProperties* currentExtension;
-        currentExtension = availableExtensions+(i*sizeof(*currentExtension));
-
-        if (strcmp(extensionName, currentExtension->extensionName) == 0)
-        {
-            return 1;
-        }
+        return 1;
     }
 
     return 0;
@@ -635,12 +620,9 @@ VkSurfaceFormatKHR chooseSwapSurfaceFormat(VkSurfaceFormatKHR* availableFormats,
     int i;
     for (i=0; i<formatCount; i++)
     {
-        VkSurfaceFormatKHR* currentFormat;
-        currentFormat = availableFormats+(i*sizeof(*currentFormat));
-
-        if (currentFormat->format == VK_FORMAT_B8G8R8A8_UNORM &&
-            currentFormat->colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-                return *currentFormat;
+        if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_UNORM &&
+            availableFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+                return availableFormats[i];
     }
 
     return *availableFormats;
@@ -708,14 +690,10 @@ struct QueueFamilyIndices findQueueFamilies(struct Engine* engine, VkPhysicalDev
     uint32_t i;
     for (i=0; i<queueFamilyCount; i++)
     {
-        // Current queue family
-        VkQueueFamilyProperties queueFamily;
-        queueFamily = *(queueFamilies+(i*sizeof(VkQueueFamilyProperties)));
-
         // Check if queue family supports VK_QUEUE_GRAPHICS_BIT
-        if (queueFamily.queueCount > 0 &&
-            queueFamily.queueFlags &
-            VK_QUEUE_GRAPHICS_BIT)
+        if (queueFamilies[i].queueCount > 0 &&
+            (queueFamilies[i].queueFlags &
+            VK_QUEUE_GRAPHICS_BIT))
         {
             indices.graphicsFamily = i;
         }
@@ -750,36 +728,35 @@ _Bool queueFamilyComplete(struct QueueFamilyIndices* indices)
 
 void createLogicalDevice(struct Engine* engine)
 {
-    struct QueueFamilyIndices indices;
-    indices = findQueueFamilies(engine, &(engine->physicalDevice));
-
     VkDeviceQueueCreateInfo queueCreateInfos[2];
     int uniqueQueueFamilies[2] = {
-        indices.graphicsFamily,
-        indices.presentFamily
+        engine->indices.graphicsFamily,
+        engine->indices.presentFamily
     };
 
     float queuePriority = 1.0f;
     int i;
     for (i=0; i<2; i++)
     {
-        VkDeviceQueueCreateInfo queueCreateInfo;
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.flags = 0;
-        queueCreateInfo.pNext = NULL;
-        queueCreateInfo.queueFamilyIndex = uniqueQueueFamilies[i];
-        queueCreateInfo.queueCount = 1;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
-        queueCreateInfos[i] = queueCreateInfo;
+        queueCreateInfos[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfos[i].flags = 0;
+        queueCreateInfos[i].pNext = NULL;
+        queueCreateInfos[i].queueFamilyIndex = uniqueQueueFamilies[i];
+        queueCreateInfos[i].queueCount = 1;
+        queueCreateInfos[i].pQueuePriorities = &queuePriority;
     }
 
-    VkPhysicalDeviceFeatures deviceFeatures;
     VkDeviceCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     createInfo.flags = 0;
     createInfo.pQueueCreateInfos = queueCreateInfos;
-    createInfo.queueCreateInfoCount = 2;
-    createInfo.pEnabledFeatures = &deviceFeatures;
+    // Passing both pQueueCreateInfos when the indices are the
+    // same will result in a validation error
+    if (engine->indices.graphicsFamily == engine->indices.presentFamily)
+        createInfo.queueCreateInfoCount = 1;
+    else
+        createInfo.queueCreateInfoCount = 2;
+    createInfo.pEnabledFeatures = NULL;
     createInfo.enabledExtensionCount = 0;
     createInfo.enabledLayerCount = 0;
 
@@ -799,14 +776,14 @@ void createLogicalDevice(struct Engine* engine)
 
     vkGetDeviceQueue(
         engine->device,
-        indices.graphicsFamily,
+        engine->indices.graphicsFamily,
         0,
         &(engine->graphicsQueue)
     );
 
     vkGetDeviceQueue(
         engine->device,
-        indices.presentFamily,
+        engine->indices.presentFamily,
         0,
         &(engine->presentQueue)
     );
@@ -847,14 +824,12 @@ void createSwapChain(struct Engine* engine)
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-    struct QueueFamilyIndices indices;
-    indices = findQueueFamilies(engine, &(engine->physicalDevice));
     uint32_t queueFamilyIndices[] = {
-        indices.graphicsFamily,
-        indices.presentFamily
+        engine->indices.graphicsFamily,
+        engine->indices.presentFamily
     };
 
-    if (indices.graphicsFamily != indices.presentFamily)
+    if (engine->indices.graphicsFamily != engine->indices.presentFamily)
     {
         createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
         createInfo.queueFamilyIndexCount = 2;
@@ -919,6 +894,8 @@ void createImageViews(struct Engine* engine)
     {
         VkImageViewCreateInfo createInfo;
         createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        createInfo.pNext = NULL;
+        createInfo.flags = 0;
         createInfo.image = engine->swapChainImages[i];
         createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         createInfo.format = engine->swapChainImageFormat;
