@@ -35,8 +35,10 @@ struct Engine
     VkInstance instance;
 
     // Validation layers
-    char* extensionNames[64];
-    uint32_t extensionCount;
+    char* surfaceExtensions[64];
+    uint32_t surfaceExtensionCount;
+    char* deviceExtensions[64];
+    uint32_t deviceExtensionCount;
     VkDebugReportCallbackEXT debugCallback;
     PFN_vkCreateDebugReportCallbackEXT createDebugCallback;
     PFN_vkDestroyDebugReportCallbackEXT destroyDebugCallback;
@@ -74,6 +76,9 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     self->physicalDevice = VK_NULL_HANDLE;
     self->device = VK_NULL_HANDLE;
 
+    self->surfaceExtensionCount = 0;
+    self->deviceExtensionCount = 0;
+
     self->swapChainImages = NULL;
     self->imageViews = NULL;
     self->imageCount = 0;
@@ -92,9 +97,13 @@ void EngineDestroy(struct Engine* self)
     uint32_t i;
 
     // Free extensions
-    for (i=0; i<self->extensionCount; i++)
+    for (i=0; i<self->surfaceExtensionCount; i++)
     {
-        free(self->extensionNames[i]);
+        free(self->surfaceExtensions[i]);
+    }
+    for (i=0; i<self->deviceExtensionCount; i++)
+    {
+        free(self->deviceExtensions[i]);
     }
 
     //vkDestroyPipeline(self->device, self->graphicsPipeline, NULL);
@@ -119,9 +128,9 @@ void EngineDestroy(struct Engine* self)
     free(self->swapChainDetails.formats);
     free(self->swapChainDetails.presentModes);
 
-    //vkDestroySwapchainKHR(self->device, self->swapChain, NULL);
-    vkDestroySurfaceKHR(self->instance, self->surface, NULL);
+    vkDestroySwapchainKHR(self->device, self->swapChain, NULL);
     vkDestroyDevice(self->device, NULL);
+    vkDestroySurfaceKHR(self->instance, self->surface, NULL);
     self->destroyDebugCallback(
         self->instance,
         self->debugCallback,
@@ -217,7 +226,7 @@ int main() {
     createSurface(engine);
     getPhysicalDevice(engine);
     createLogicalDevice(engine);
-    //createSwapChain(engine);
+    createSwapChain(engine);
     //createImageViews(engine);
     //createRenderPass(engine);
     //createGraphicsPipeline(engine);
@@ -253,9 +262,9 @@ void createInstance(struct Engine* engine)
     createInfo.pApplicationInfo = &appInfo;
 
     getRequiredExtensions(engine);
-    createInfo.enabledExtensionCount = engine->extensionCount;
+    createInfo.enabledExtensionCount = engine->surfaceExtensionCount;
     createInfo.ppEnabledExtensionNames =
-        (const char* const*)engine->extensionNames;
+        (const char* const*)engine->surfaceExtensions;
 
     const char* validationLayers[] = {"VK_LAYER_LUNARG_standard_validation"};
     uint32_t validationLayerCount =
@@ -324,17 +333,17 @@ void getRequiredExtensions(struct Engine* engine)
     uint32_t i;
     for (i=0; i<glfwExtensionCount; i++)
     {
-        engine->extensionNames[i] = malloc(strlen(glfwExtensions[i])+1);
-        strcpy(engine->extensionNames[i], glfwExtensions[i]);
+        engine->surfaceExtensions[i] = calloc(1, strlen(glfwExtensions[i])+1);
+        strcpy(engine->surfaceExtensions[i], glfwExtensions[i]);
     }
 
     // Append debug report extension name
-    engine->extensionNames[i] =
-        malloc(strlen(VK_EXT_DEBUG_REPORT_EXTENSION_NAME)+1);
-    strcpy(engine->extensionNames[i], VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+    engine->surfaceExtensions[i] =
+        calloc(1, strlen(VK_EXT_DEBUG_REPORT_EXTENSION_NAME)+1);
+    strcpy(engine->surfaceExtensions[i], VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
     i++;
 
-    engine->extensionCount = i;
+    engine->surfaceExtensionCount = i;
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -351,10 +360,10 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     assert(message);
 
     if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
-        sprintf(message, "Error from %s, code %d: %s.",
+        sprintf(message, "%s error, code %d: %s",
                 pLayerPrefix, code, pMsg);
     else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-        sprintf(message, "Warning from %s, code %d: %s.",
+        sprintf(message, "%s warning, code %d: %s",
                 pLayerPrefix, code, pMsg);
     else
         return VK_FALSE;
@@ -477,11 +486,12 @@ _Bool isDeviceSuitable(struct Engine* engine, VkPhysicalDevice* physicalDevice)
     // Device extensions
     _Bool extensionsSupported = 0;
 
-    const char* deviceExtensions[] = {
+    engine->deviceExtensions[engine->deviceExtensionCount] =
+        calloc(1, strlen(VK_KHR_SWAPCHAIN_EXTENSION_NAME)+1);
+    strcpy(
+        engine->deviceExtensions[engine->deviceExtensionCount++],
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    };
-    uint32_t deviceExtensionCount;
-    deviceExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
+    );
 
     uint32_t extensionCount;
     vkEnumerateDeviceExtensionProperties(
@@ -500,13 +510,13 @@ _Bool isDeviceSuitable(struct Engine* engine, VkPhysicalDevice* physicalDevice)
     );
 
     uint32_t i, j;
-    for (i=0; i<deviceExtensionCount; i++)
+    for (i=0; i<engine->deviceExtensionCount; i++)
     {
         for (j=0; j<extensionCount; j++)
         {
             if (strcmp(
-                    deviceExtensions[i],
-                    availableExtensions->extensionName
+                    engine->deviceExtensions[i],
+                    availableExtensions[j].extensionName
                 ) == 0)
             {
                 extensionsSupported = 1;
@@ -757,7 +767,8 @@ void createLogicalDevice(struct Engine* engine)
     else
         createInfo.queueCreateInfoCount = 2;
     createInfo.pEnabledFeatures = NULL;
-    createInfo.enabledExtensionCount = 0;
+    createInfo.enabledExtensionCount = engine->deviceExtensionCount;
+    createInfo.ppEnabledExtensionNames = (const char* const*)engine->deviceExtensions;
     createInfo.enabledLayerCount = 0;
 
     VkResult result;
@@ -816,6 +827,8 @@ void createSwapChain(struct Engine* engine)
 
     VkSwapchainCreateInfoKHR createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
     createInfo.surface = engine->surface;
     createInfo.minImageCount = engine->imageCount;
     createInfo.imageFormat = surfaceFormat.format;
