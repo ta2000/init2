@@ -119,7 +119,7 @@ void EngineDestroy(struct Engine* self)
         {
             vkDestroyImageView(
                 self->device,
-                *(self->imageViews+(i*sizeof(*self->imageViews))),
+                self->imageViews[i],
                 NULL
             );
         }
@@ -227,7 +227,7 @@ int main() {
     getPhysicalDevice(engine);
     createLogicalDevice(engine);
     createSwapChain(engine);
-    //createImageViews(engine);
+    createImageViews(engine);
     //createRenderPass(engine);
     //createGraphicsPipeline(engine);
 
