@@ -70,6 +70,9 @@ struct Engine
     // Graphics pipeline
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
+
+    // Frame buffers
+    VkFramebuffer* framebuffers;
 };
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
@@ -78,6 +81,8 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
 
     self->surfaceExtensionCount = 0;
     self->deviceExtensionCount = 0;
+
+    self->framebuffers = NULL;
 
     self->swapChainImages = NULL;
     self->imageViews = NULL;
@@ -95,6 +100,15 @@ void EngineRun(struct Engine* self)
 void EngineDestroy(struct Engine* self)
 {
     uint32_t i;
+
+    // Destroy frame buffers, same number as swapchain images
+    if (self->framebuffers != NULL)
+    {
+        for (i=0; i<self->imageCount; i++)
+        {
+            vkDestroyFramebuffer(self->device, self->framebuffers[i], NULL);
+        }
+    }
 
     // Free extensions
     for (i=0; i<self->surfaceExtensionCount; i++)
@@ -117,11 +131,7 @@ void EngineDestroy(struct Engine* self)
     {
         for (i=0; i<self->imageCount; i++)
         {
-            vkDestroyImageView(
-                self->device,
-                self->imageViews[i],
-                NULL
-            );
+            vkDestroyImageView(self->device, self->imageViews[i], NULL);
         }
     }
 
@@ -197,6 +207,7 @@ void createShaderModule(
     uint32_t codeSize,
     VkShaderModule* shaderModule
 );
+void createFrameBuffers(struct Engine* engine);
 
 uint32_t min(uint32_t a, uint32_t b)
 {
@@ -230,6 +241,7 @@ int main() {
     createImageViews(engine);
     createRenderPass(engine);
     createGraphicsPipeline(engine);
+    createFrameBuffers(engine);
 
     EngineRun(engine);
 
@@ -1249,5 +1261,41 @@ void createShaderModule(struct Engine* engine, char* code, uint32_t codeSize, Vk
     {
         fprintf(stderr, "Shader module creation failed.\n");
         exit(-1);
+    }
+}
+
+void createFrameBuffers(struct Engine* engine)
+{
+    engine->framebuffers = malloc(engine->imageCount);
+
+    uint32_t i;
+    for (i=0; i<engine->imageCount; i++)
+    {
+        VkImageView attachments[] = { engine->imageViews[i] };
+
+        VkFramebufferCreateInfo createInfo;
+        createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        createInfo.pNext = NULL;
+        createInfo.flags = 0;
+        createInfo.renderPass = engine->renderPass;
+        createInfo.attachmentCount = 1;
+        createInfo.pAttachments = attachments;
+        createInfo.width = engine->swapChainExtent.width;
+        createInfo.height = engine->swapChainExtent.height;
+        createInfo.layers = 1;
+
+        VkResult result;
+        result = vkCreateFramebuffer(
+            engine->device,
+            &createInfo,
+            NULL,
+            &(engine->framebuffers[i])
+        );
+
+        if (result != VK_SUCCESS)
+        {
+            fprintf(stderr, "Error during framebuffer creation.\n");
+            exit(-1);
+        }
     }
 }
