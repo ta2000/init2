@@ -106,9 +106,9 @@ void EngineDestroy(struct Engine* self)
         free(self->deviceExtensions[i]);
     }
 
-    //vkDestroyPipeline(self->device, self->graphicsPipeline, NULL);
-    //vkDestroyPipelineLayout(self->device, self->pipelineLayout, NULL);
-    //vkDestroyRenderPass(self->device, self->renderPass, NULL);
+    vkDestroyPipeline(self->device, self->graphicsPipeline, NULL);
+    vkDestroyPipelineLayout(self->device, self->pipelineLayout, NULL);
+    vkDestroyRenderPass(self->device, self->renderPass, NULL);
 
     // Destroy all imageviews
     // TODO: Destroy as many image views as there are created
@@ -228,8 +228,8 @@ int main() {
     createLogicalDevice(engine);
     createSwapChain(engine);
     createImageViews(engine);
-    //createRenderPass(engine);
-    //createGraphicsPipeline(engine);
+    createRenderPass(engine);
+    createGraphicsPipeline(engine);
 
     EngineRun(engine);
 
@@ -968,6 +968,7 @@ void createRenderPass(struct Engine* engine)
     VkRenderPassCreateInfo renderPassCreateInfo;
     renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     renderPassCreateInfo.pNext = NULL;
+    renderPassCreateInfo.flags = 0;
     renderPassCreateInfo.attachmentCount = 1;
     renderPassCreateInfo.pAttachments = &colorAttachment;
     renderPassCreateInfo.subpassCount = 1;
@@ -1041,6 +1042,7 @@ void createGraphicsPipeline(struct Engine* engine)
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo;
     VkGraphicsPipelineCreateInfo pipelineInfo;
+    VkPipelineShaderStageCreateInfo shaderStageInfos[2];
     VkPipelineVertexInputStateCreateInfo vertInputInfo;
     VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo;
     VkPipelineRasterizationStateCreateInfo rasterizationInfo;
@@ -1066,6 +1068,24 @@ void createGraphicsPipeline(struct Engine* engine)
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.layout = engine->pipelineLayout;
     pipelineInfo.stageCount = 2;
+
+    memset(shaderStageInfos, 0, 2*sizeof(shaderStageInfos[0]));
+    shaderStageInfos[0].sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    shaderStageInfos[0].pNext = NULL;
+    shaderStageInfos[0].flags = 0;
+    shaderStageInfos[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    shaderStageInfos[0].module = vertShaderModule;
+    shaderStageInfos[0].pName = "main";
+    shaderStageInfos[0].pSpecializationInfo = NULL;
+    shaderStageInfos[1].sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    shaderStageInfos[1].pNext = NULL;
+    shaderStageInfos[1].flags = 0;
+    shaderStageInfos[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    shaderStageInfos[1].module = fragShaderModule;
+    shaderStageInfos[1].pName = "main";
+    shaderStageInfos[1].pSpecializationInfo = NULL;
 
     memset(&vertInputInfo, 0, sizeof(vertInputInfo));
     vertInputInfo.sType =
@@ -1159,7 +1179,10 @@ void createGraphicsPipeline(struct Engine* engine)
     memset(&colorBlendInfo, 0, sizeof(colorBlendInfo));
     colorBlendInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlendInfo.logicOpEnable = VK_TRUE;
+    // TODO: investigate logicOp
+    // Validation error when logicOpEnable is set to
+    // VK_TRUE
+    colorBlendInfo.logicOpEnable = VK_FALSE;
     colorBlendInfo.logicOp = VK_LOGIC_OP_COPY;
     colorBlendInfo.attachmentCount = 1;
     colorBlendInfo.pAttachments = &colorBlendAttachment;
@@ -1168,6 +1191,8 @@ void createGraphicsPipeline(struct Engine* engine)
     colorBlendInfo.blendConstants[2] = 0.0f;
     colorBlendInfo.blendConstants[3] = 0.0f;
 
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStageInfos;
     pipelineInfo.pVertexInputState = &vertInputInfo;
     pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
     pipelineInfo.pTessellationState = NULL;
@@ -1207,6 +1232,8 @@ void createShaderModule(struct Engine* engine, char* code, uint32_t codeSize, Vk
 {
     VkShaderModuleCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
     createInfo.codeSize = codeSize;
     createInfo.pCode = (uint32_t*)code;
 
