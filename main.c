@@ -73,6 +73,10 @@ struct Engine
 
     // Frame buffers
     VkFramebuffer* framebuffers;
+
+    // Command pool/buffers
+    VkCommandPool commandPool;
+    VkCommandBuffer* commandBuffers;
 };
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
@@ -83,6 +87,7 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     self->deviceExtensionCount = 0;
 
     self->framebuffers = NULL;
+    self->commandBuffers = NULL;
 
     self->swapChainImages = NULL;
     self->imageViews = NULL;
@@ -100,6 +105,18 @@ void EngineRun(struct Engine* self)
 void EngineDestroy(struct Engine* self)
 {
     uint32_t i;
+
+    vkFreeCommandBuffers(
+        self->device,
+        self->commandPool,
+        self->imageCount,
+        self->commandBuffers
+    );
+
+    free(self->commandBuffers);
+
+    // Destroy command pool
+    vkDestroyCommandPool(self->device, self->commandPool, NULL);
 
     // Destroy frame buffers, same number as swapchain images
     if (self->framebuffers != NULL)
@@ -208,6 +225,8 @@ void createShaderModule(
     VkShaderModule* shaderModule
 );
 void createFrameBuffers(struct Engine* engine);
+void createCommandPool(struct Engine* engine);
+void createCommandBuffers(struct Engine* engine);
 
 uint32_t min(uint32_t a, uint32_t b)
 {
@@ -242,6 +261,8 @@ int main() {
     createRenderPass(engine);
     createGraphicsPipeline(engine);
     createFrameBuffers(engine);
+    createCommandPool(engine);
+    createCommandBuffers(engine);
 
     EngineRun(engine);
 
@@ -761,8 +782,8 @@ void createLogicalDevice(struct Engine* engine)
     for (i=0; i<2; i++)
     {
         queueCreateInfos[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfos[i].flags = 0;
         queueCreateInfos[i].pNext = NULL;
+        queueCreateInfos[i].flags = 0;
         queueCreateInfos[i].queueFamilyIndex = uniqueQueueFamilies[i];
         queueCreateInfos[i].queueCount = 1;
         queueCreateInfos[i].pQueuePriorities = &queuePriority;
@@ -770,6 +791,7 @@ void createLogicalDevice(struct Engine* engine)
 
     VkDeviceCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    createInfo.pNext = NULL;
     createInfo.flags = 0;
     createInfo.pQueueCreateInfos = queueCreateInfos;
     // Passing both pQueueCreateInfos when the indices are the
@@ -781,6 +803,8 @@ void createLogicalDevice(struct Engine* engine)
     createInfo.pEnabledFeatures = NULL;
     createInfo.enabledExtensionCount = engine->deviceExtensionCount;
     createInfo.ppEnabledExtensionNames = (const char* const*)engine->deviceExtensions;
+
+    // Deprecated, but currently causes segfault if missing
     createInfo.enabledLayerCount = 0;
 
     VkResult result;
@@ -952,6 +976,7 @@ void createImageViews(struct Engine* engine)
 void createRenderPass(struct Engine* engine)
 {
     VkAttachmentDescription colorAttachment;
+    colorAttachment.flags = 0;
     colorAttachment.format = engine->swapChainImageFormat;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -1266,7 +1291,8 @@ void createShaderModule(struct Engine* engine, char* code, uint32_t codeSize, Vk
 
 void createFrameBuffers(struct Engine* engine)
 {
-    engine->framebuffers = malloc(engine->imageCount);
+    engine->framebuffers = malloc(
+            engine->imageCount * sizeof(*(engine->framebuffers)));
 
     uint32_t i;
     for (i=0; i<engine->imageCount; i++)
@@ -1295,6 +1321,106 @@ void createFrameBuffers(struct Engine* engine)
         if (result != VK_SUCCESS)
         {
             fprintf(stderr, "Error during framebuffer creation.\n");
+            exit(-1);
+        }
+    }
+}
+
+void createCommandPool(struct Engine* engine)
+{
+    VkCommandPoolCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0; // Relates to reset frequency of command buffers
+    createInfo.queueFamilyIndex = engine->indices.graphicsFamily;
+
+    VkResult result;
+    result = vkCreateCommandPool(
+        engine->device,
+        &createInfo,
+        NULL,
+        &(engine->commandPool)
+    );
+
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create command pool.\n");
+        exit(-1);
+    }
+}
+
+void createCommandBuffers(struct Engine* engine)
+{
+    engine->commandBuffers = malloc(
+            engine->imageCount * sizeof(*(engine->commandBuffers)));
+
+    VkCommandBufferAllocateInfo allocInfo;
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.pNext = NULL;
+    allocInfo.commandPool = engine->commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = engine->imageCount;
+
+    VkResult result;
+    result = vkAllocateCommandBuffers(
+        engine->device,
+        &allocInfo,
+        engine->commandBuffers
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create command buffers.\n");
+        exit(-1);
+    }
+
+    uint32_t i;
+    for (i=0; i<engine->imageCount; i++)
+    {
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = NULL;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+        beginInfo.pInheritanceInfo = NULL;
+
+        vkBeginCommandBuffer(engine->commandBuffers[i], &beginInfo);
+
+        VkRenderPassBeginInfo renderPassInfo;
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.pNext = NULL;
+        renderPassInfo.renderPass = engine->renderPass;
+        renderPassInfo.framebuffer = engine->framebuffers[i];
+        renderPassInfo.renderArea.offset.x = 0;
+        renderPassInfo.renderArea.offset.y = 0;
+        renderPassInfo.renderArea.extent = engine->swapChainExtent;
+
+        VkClearValue clearColor = {
+            .color.float32 = {0.0f, 0.0f, 0.0f, 1.0f}
+        };
+
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearColor;
+
+        vkCmdBeginRenderPass(
+            engine->commandBuffers[i],
+            &renderPassInfo,
+            VK_SUBPASS_CONTENTS_INLINE
+        );
+
+        vkCmdBindPipeline(
+            engine->commandBuffers[i],
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            engine->graphicsPipeline
+        );
+
+        vkCmdDraw(engine->commandBuffers[i], 3, 1, 0, 0);
+
+        vkCmdEndRenderPass(engine->commandBuffers[i]);
+
+        VkResult result;
+        result = vkEndCommandBuffer(engine->commandBuffers[i]);
+        if (result != VK_SUCCESS)
+        {
+            fprintf(stderr, "Failed to record command buffers.\n");
             exit(-1);
         }
     }
