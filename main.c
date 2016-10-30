@@ -77,7 +77,14 @@ struct Engine
     // Command pool/buffers
     VkCommandPool commandPool;
     VkCommandBuffer* commandBuffers;
+
+    // Semaphores
+    VkSemaphore imageAvailable;
+    VkSemaphore renderFinished;
 };
+
+void drawFrame(struct Engine* engine);
+
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
     self->physicalDevice = VK_NULL_HANDLE;
@@ -100,11 +107,17 @@ void EngineRun(struct Engine* self)
     // GLFW main loop
     while(!glfwWindowShouldClose(self->window)) {
         glfwPollEvents();
+        drawFrame(self);
     }
+
+    vkDeviceWaitIdle(self->device);
 }
 void EngineDestroy(struct Engine* self)
 {
     uint32_t i;
+
+    vkDestroySemaphore(self->device, self->imageAvailable, NULL);
+    vkDestroySemaphore(self->device, self->renderFinished, NULL);
 
     vkFreeCommandBuffers(
         self->device,
@@ -227,6 +240,7 @@ void createShaderModule(
 void createFrameBuffers(struct Engine* engine);
 void createCommandPool(struct Engine* engine);
 void createCommandBuffers(struct Engine* engine);
+void createSemaphores(struct Engine* engine);
 
 uint32_t min(uint32_t a, uint32_t b)
 {
@@ -263,6 +277,7 @@ int main() {
     createFrameBuffers(engine);
     createCommandPool(engine);
     createCommandBuffers(engine);
+    createSemaphores(engine);
 
     EngineRun(engine);
 
@@ -1002,6 +1017,19 @@ void createRenderPass(struct Engine* engine)
     subpass.preserveAttachmentCount = 0;
     subpass.pPreserveAttachments = NULL;
 
+    VkSubpassDependency dependency;
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstStageMask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask =
+        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependency.dependencyFlags = 0;
+
     VkRenderPassCreateInfo renderPassCreateInfo;
     renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     renderPassCreateInfo.pNext = NULL;
@@ -1010,8 +1038,8 @@ void createRenderPass(struct Engine* engine)
     renderPassCreateInfo.pAttachments = &colorAttachment;
     renderPassCreateInfo.subpassCount = 1;
     renderPassCreateInfo.pSubpasses = &subpass;
-    renderPassCreateInfo.dependencyCount = 0;
-    renderPassCreateInfo.pDependencies = NULL;
+    renderPassCreateInfo.dependencyCount = 1;
+    renderPassCreateInfo.pDependencies = &dependency;
 
     VkResult result;
     result = vkCreateRenderPass(
@@ -1205,8 +1233,7 @@ void createGraphicsPipeline(struct Engine* engine)
         VK_COLOR_COMPONENT_A_BIT;
     colorBlendAttachment.blendEnable = VK_TRUE;
     colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachment.dstColorBlendFactor =
-        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
     colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
     colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
@@ -1216,9 +1243,6 @@ void createGraphicsPipeline(struct Engine* engine)
     memset(&colorBlendInfo, 0, sizeof(colorBlendInfo));
     colorBlendInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    // TODO: investigate logicOp
-    // Validation error when logicOpEnable is set to
-    // VK_TRUE
     colorBlendInfo.logicOpEnable = VK_FALSE;
     colorBlendInfo.logicOp = VK_LOGIC_OP_COPY;
     colorBlendInfo.attachmentCount = 1;
@@ -1424,4 +1448,98 @@ void createCommandBuffers(struct Engine* engine)
             exit(-1);
         }
     }
+}
+
+void createSemaphores(struct Engine* engine)
+{
+    VkSemaphoreCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+
+    VkResult result;
+    result = vkCreateSemaphore(
+        engine->device,
+        &createInfo,
+        NULL,
+        &(engine->imageAvailable)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create semaphore.\n");
+        exit(-1);
+    }
+
+    result = vkCreateSemaphore(
+        engine->device,
+        &createInfo,
+        NULL,
+        &(engine->renderFinished)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create semaphore.\n");
+        exit(-1);
+    }
+}
+
+void drawFrame(struct Engine* engine)
+{
+    uint32_t imageIndex;
+    vkAcquireNextImageKHR(
+        engine->device,
+        engine->swapChain,
+        UINT64_MAX, // Wait for next image indefinitely (ns)
+        engine->imageAvailable,
+        VK_NULL_HANDLE,
+        &imageIndex
+    );
+
+    VkSubmitInfo submitInfo;
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.pNext = NULL;
+
+    VkSemaphore waitSemaphores[] = { engine->imageAvailable };
+    VkPipelineStageFlags waitStages[] = {
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+    };
+
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &(engine->commandBuffers[imageIndex]);
+
+    VkSemaphore signalSemaphores[] = { engine->renderFinished };
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    VkResult result;
+    result = vkQueueSubmit(
+        engine->graphicsQueue,
+        1,
+        &submitInfo,
+        VK_NULL_HANDLE
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Error while submitting queue.\n");
+        exit(-1);
+    }
+
+    VkPresentInfoKHR presentInfo;
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.pNext = NULL;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+
+    VkSwapchainKHR swapChains[] = { engine->swapChain };
+
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapChains;
+    presentInfo.pImageIndices = &imageIndex;
+    presentInfo.pResults = NULL;
+
+    vkQueuePresentKHR(engine->presentQueue, &presentInfo);
 }
