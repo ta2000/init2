@@ -263,7 +263,7 @@ int main() {
         NULL
     );
 
-    struct Engine* engine = malloc(sizeof(*engine));
+    struct Engine* engine = calloc(1, sizeof(*engine));
     EngineInit(engine, window);
     createInstance(engine);
     setupDebugCallback(engine);
@@ -282,6 +282,8 @@ int main() {
     EngineRun(engine);
 
     EngineDestroy(engine);
+
+    free(engine);
 
     // Close window
     glfwDestroyWindow(window);
@@ -819,8 +821,9 @@ void createLogicalDevice(struct Engine* engine)
     createInfo.enabledExtensionCount = engine->deviceExtensionCount;
     createInfo.ppEnabledExtensionNames = (const char* const*)engine->deviceExtensions;
 
-    // Deprecated, but currently causes segfault if missing
+    // Deprecated, but causes valgrind error if missing
     createInfo.enabledLayerCount = 0;
+    createInfo.ppEnabledLayerNames = NULL;
 
     VkResult result;
     result = vkCreateDevice(
@@ -1160,6 +1163,7 @@ void createGraphicsPipeline(struct Engine* engine)
     inputAssemblyInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
 
     memset(&rasterizationInfo, 0, sizeof(rasterizationInfo));
     rasterizationInfo.sType =
@@ -1201,7 +1205,7 @@ void createGraphicsPipeline(struct Engine* engine)
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     multisampleInfo.sampleShadingEnable = VK_FALSE;
-    multisampleInfo.minSampleShading = 1.0f;
+    multisampleInfo.minSampleShading = 0.0f;
     multisampleInfo.pSampleMask = NULL;
     multisampleInfo.alphaToCoverageEnable = VK_FALSE;
     multisampleInfo.alphaToOneEnable = VK_FALSE;
@@ -1212,7 +1216,7 @@ void createGraphicsPipeline(struct Engine* engine)
     pipelineLayoutInfo.setLayoutCount = 0;
     pipelineLayoutInfo.pSetLayouts = NULL;
     pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayoutInfo.pPushConstantRanges = 0;
+    pipelineLayoutInfo.pPushConstantRanges = NULL;
 
     if (vkCreatePipelineLayout(
             engine->device,
@@ -1231,7 +1235,7 @@ void createGraphicsPipeline(struct Engine* engine)
         VK_COLOR_COMPONENT_G_BIT |
         VK_COLOR_COMPONENT_B_BIT |
         VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.blendEnable = VK_FALSE;
     colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
     colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
@@ -1418,7 +1422,7 @@ void createCommandBuffers(struct Engine* engine)
         renderPassInfo.renderArea.extent = engine->swapChainExtent;
 
         VkClearValue clearColor = {
-            .color.float32 = {0.0f, 0.0f, 0.0f, 1.0f}
+            .color.float32 = {0.2f, 0.2f, 0.2f, 1.0f}
         };
 
         renderPassInfo.clearValueCount = 1;
