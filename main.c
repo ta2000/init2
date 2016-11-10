@@ -20,11 +20,12 @@ struct QueueFamilyIndices
 struct SwapChainSupportDetails
 {
     VkSurfaceCapabilitiesKHR capabilities;
-    VkSurfaceFormatKHR* formats;
     uint32_t formatCount;
-    VkPresentModeKHR* presentModes;
+    VkSurfaceFormatKHR* formats;
     uint32_t presentModeCount;
+    VkPresentModeKHR* presentModes;
 };
+void freeSwapChainSupportDetails(struct SwapChainSupportDetails* details);
 
 struct Engine
 {
@@ -165,8 +166,7 @@ void EngineDestroy(struct Engine* self)
         }
     }
 
-    free(self->swapChainDetails.formats);
-    free(self->swapChainDetails.presentModes);
+    freeSwapChainSupportDetails(&(self->swapChainDetails));
 
     vkDestroySwapchainKHR(self->device, self->swapChain, NULL);
     vkDestroyDevice(self->device, NULL);
@@ -619,51 +619,63 @@ struct SwapChainSupportDetails querySwapChainSupport(struct Engine* engine, VkPh
         &(details.capabilities)
     );
 
-    uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(
         *physicalDevice,
         engine->surface,
-        &formatCount,
+        &(details.formatCount),
         NULL
     );
-    details.formatCount = formatCount;
-    if (formatCount != 0)
+
+    if (details.formatCount != 0)
     {
         details.formats = calloc(
-            formatCount,
+            details.formatCount,
             sizeof(*(details.formats))
         );
         vkGetPhysicalDeviceSurfaceFormatsKHR(
             *physicalDevice,
             engine->surface,
-            &formatCount,
+            &(details.formatCount),
             details.formats
         );
     }
 
-    uint32_t presentModeCount;
     vkGetPhysicalDeviceSurfacePresentModesKHR(
         *physicalDevice,
         engine->surface,
-        &presentModeCount,
+        &(details.presentModeCount),
         NULL
     );
-    details.presentModeCount = presentModeCount;
-    if (presentModeCount != 0)
+    if (details.presentModeCount != 0)
     {
         details.presentModes = calloc(
-            presentModeCount,
+            details.presentModeCount,
             sizeof(*(details.presentModes))
         );
         vkGetPhysicalDeviceSurfacePresentModesKHR(
             *physicalDevice,
             engine->surface,
-            &presentModeCount,
+            &(details.presentModeCount),
             details.presentModes
         );
     }
 
     return details;
+}
+
+void freeSwapChainSupportDetails(struct SwapChainSupportDetails* details)
+{
+    if (details->formats) {
+        free(details->formats);
+    } else {
+        printf(".formats property of struct SwapChainSupportDetails %p is already NULL.\n", (void*)details);
+    }
+
+    if (details->presentModes) {
+        free(details->presentModes);
+    } else {
+        printf(".presentModes property of struct SwapChainSupportDetails %p is already NULL.\n", (void*)details);
+    }
 }
 
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(VkSurfaceFormatKHR* availableFormats, int formatCount)
@@ -947,6 +959,8 @@ void createSwapChain(struct Engine* engine)
 
     engine->swapChainImageFormat = surfaceFormat.format;
     engine->swapChainExtent = extent;
+
+    freeSwapChainSupportDetails(&swapChainSupport);
 }
 
 void createImageViews(struct Engine* engine)
@@ -1218,17 +1232,6 @@ void createGraphicsPipeline(struct Engine* engine)
     pipelineLayoutInfo.pushConstantRangeCount = 0;
     pipelineLayoutInfo.pPushConstantRanges = NULL;
 
-    if (vkCreatePipelineLayout(
-            engine->device,
-            &pipelineLayoutInfo,
-            NULL,
-            &(engine->pipelineLayout)
-    ) != VK_SUCCESS )
-    {
-        fprintf(stderr, "Failed to create pipeline layout.\n");
-        exit(-1);
-    }
-
     memset(&colorBlendAttachment, 0, sizeof(colorBlendAttachment));
     colorBlendAttachment.colorWriteMask =
         VK_COLOR_COMPONENT_R_BIT |
@@ -1236,13 +1239,13 @@ void createGraphicsPipeline(struct Engine* engine)
         VK_COLOR_COMPONENT_B_BIT |
         VK_COLOR_COMPONENT_A_BIT;
     colorBlendAttachment.blendEnable = VK_FALSE;
-    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    /*colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
     colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
     colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-    colorBlendAttachment.colorWriteMask = 0;
+    colorBlendAttachment.colorWriteMask = 0;*/
 
     memset(&colorBlendInfo, 0, sizeof(colorBlendInfo));
     colorBlendInfo.sType =
@@ -1255,6 +1258,17 @@ void createGraphicsPipeline(struct Engine* engine)
     colorBlendInfo.blendConstants[1] = 0.0f;
     colorBlendInfo.blendConstants[2] = 0.0f;
     colorBlendInfo.blendConstants[3] = 0.0f;
+
+    if (vkCreatePipelineLayout(
+            engine->device,
+            &pipelineLayoutInfo,
+            NULL,
+            &(engine->pipelineLayout)
+    ) != VK_SUCCESS )
+    {
+        fprintf(stderr, "Failed to create pipeline layout.\n");
+        exit(-1);
+    }
 
     pipelineInfo.stageCount = 2;
     pipelineInfo.pStages = shaderStageInfos;
@@ -1271,7 +1285,6 @@ void createGraphicsPipeline(struct Engine* engine)
     pipelineInfo.renderPass = engine->renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-    pipelineInfo.basePipelineIndex = -1;
 
     if (vkCreateGraphicsPipelines(
             engine->device,
