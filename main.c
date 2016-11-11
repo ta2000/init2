@@ -667,69 +667,10 @@ void freeSwapChainSupportDetails(struct SwapChainSupportDetails* details)
 {
     if (details->formats) {
         free(details->formats);
-    } else {
-        printf(".formats property of struct SwapChainSupportDetails %p is already NULL.\n", (void*)details);
     }
-
     if (details->presentModes) {
         free(details->presentModes);
-    } else {
-        printf(".presentModes property of struct SwapChainSupportDetails %p is already NULL.\n", (void*)details);
     }
-}
-
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(VkSurfaceFormatKHR* availableFormats, int formatCount)
-{
-    if (formatCount == 1 && availableFormats->format == VK_FORMAT_UNDEFINED)
-    {
-        VkSurfaceFormatKHR noPreferredFormat = {
-            .format = VK_FORMAT_B8G8R8A8_UNORM,
-            .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-        };
-        return noPreferredFormat;
-    }
-
-    int i;
-    for (i=0; i<formatCount; i++)
-    {
-        if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_UNORM &&
-            availableFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-                return availableFormats[i];
-    }
-
-    return *availableFormats;
-}
-
-VkPresentModeKHR chooseSwapPresentMode(VkPresentModeKHR* availablePresentModes, int presentModeCount)
-{
-    int i;
-    for (i=0; i<presentModeCount; i++)
-    {
-        if (availablePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
-            return availablePresentModes[i];
-    }
-
-    return VK_PRESENT_MODE_FIFO_KHR;
-}
-
-VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR* capabilities)
-{
-    if (capabilities->currentExtent.width != UINT32_MAX)
-    {
-        return capabilities->currentExtent;
-    }
-
-    VkExtent2D actualExtent = {.width = WIDTH, .height = HEIGHT};
-    actualExtent.width = max(
-        capabilities->minImageExtent.width,
-        min(capabilities->maxImageExtent.width, actualExtent.width)
-    );
-    actualExtent.height = max(
-        capabilities->minImageExtent.height,
-        min(capabilities->maxImageExtent.height, actualExtent.height)
-    );
-
-    return actualExtent;
 }
 
 struct QueueFamilyIndices findQueueFamilies(struct Engine* engine, VkPhysicalDevice* physicalDevice)
@@ -963,6 +904,60 @@ void createSwapChain(struct Engine* engine)
     freeSwapChainSupportDetails(&swapChainSupport);
 }
 
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(VkSurfaceFormatKHR* availableFormats, int formatCount)
+{
+    if (formatCount == 1 && availableFormats->format == VK_FORMAT_UNDEFINED)
+    {
+        VkSurfaceFormatKHR noPreferredFormat = {
+            .format = VK_FORMAT_B8G8R8A8_UNORM,
+            .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+        };
+        return noPreferredFormat;
+    }
+
+    int i;
+    for (i=0; i<formatCount; i++)
+    {
+        if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_UNORM &&
+            availableFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+                return availableFormats[i];
+    }
+
+    return *availableFormats;
+}
+
+VkPresentModeKHR chooseSwapPresentMode(VkPresentModeKHR* availablePresentModes, int presentModeCount)
+{
+    int i;
+    for (i=0; i<presentModeCount; i++)
+    {
+        if (availablePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
+            return availablePresentModes[i];
+    }
+
+    return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR* capabilities)
+{
+    if (capabilities->currentExtent.width != UINT32_MAX)
+    {
+        return capabilities->currentExtent;
+    }
+
+    VkExtent2D actualExtent = {.width = WIDTH, .height = HEIGHT};
+    actualExtent.width = max(
+        capabilities->minImageExtent.width,
+        min(capabilities->maxImageExtent.width, actualExtent.width)
+    );
+    actualExtent.height = max(
+        capabilities->minImageExtent.height,
+        min(capabilities->maxImageExtent.height, actualExtent.height)
+    );
+
+    return actualExtent;
+}
+
 void createImageViews(struct Engine* engine)
 {
     engine->imageViews = calloc(
@@ -1070,29 +1065,6 @@ void createRenderPass(struct Engine* engine)
         fprintf(stderr, "Failed to create render pass.\n");
         exit(-1);
     }
-}
-
-char* readFile(const char* fname, uint32_t* fsize)
-{
-    FILE *fp = fopen(fname, "r");
-
-    if (!fp)
-    {
-        fprintf(stderr, "Failed to load file %s.\n", fname);
-        return NULL;
-    }
-
-    fseek(fp, 0L, SEEK_END);
-    uint32_t length = ftell(fp);
-    rewind(fp);
-
-    char* buffer = malloc(length);
-    fread(buffer, length, 1, fp);
-    *fsize = length;
-
-    fclose(fp);
-
-    return buffer;
 }
 
 void createGraphicsPipeline(struct Engine* engine)
@@ -1305,6 +1277,29 @@ void createGraphicsPipeline(struct Engine* engine)
     vkDestroyShaderModule(engine->device, fragShaderModule, NULL);
 }
 
+char* readFile(const char* fname, uint32_t* fsize)
+{
+    FILE *fp = fopen(fname, "r");
+
+    if (!fp)
+    {
+        fprintf(stderr, "Failed to load file %s.\n", fname);
+        return NULL;
+    }
+
+    fseek(fp, 0L, SEEK_END);
+    uint32_t length = ftell(fp);
+    rewind(fp);
+
+    char* buffer = malloc(length);
+    fread(buffer, length, 1, fp);
+    *fsize = length;
+
+    fclose(fp);
+
+    return buffer;
+}
+
 void createShaderModule(struct Engine* engine, char* code, uint32_t codeSize, VkShaderModule* shaderModule)
 {
     VkShaderModuleCreateInfo createInfo;
@@ -1434,7 +1429,7 @@ void createCommandBuffers(struct Engine* engine)
         renderPassInfo.renderArea.extent = engine->swapChainExtent;
 
         VkClearValue clearColor = {
-            .color.float32 = {0.2f, 0.2f, 0.2f, 1.0f}
+            .color.float32 = {0.0f, 0.0f, 0.0f, 1.0f}
         };
 
         renderPassInfo.clearValueCount = 1;
