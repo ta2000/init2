@@ -84,8 +84,112 @@ struct Engine
     VkSemaphore renderFinished;
 };
 
+/*  -----------------------------
+ *  --- Forward declarations ----
+ *  -----------------------------   */
+// INSTANCE
+void createInstance(struct Engine* engine);
+void destroyInstance(struct Engine* engine);
+
+// VALIDATION SUPPORT
+_Bool checkValidationSupport(
+    uint32_t validationLayerCount,
+    const char** validationLayers
+);
+
+// DEVICE EXTENSIONS
+void getRequiredExtensions(struct Engine* engine);
+void freeExtensions(struct Engine* engine);
+
+// DEBUG CALLBACK
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+    VkDebugReportFlagsEXT flags,
+    VkDebugReportObjectTypeEXT objType,
+    uint64_t obj,
+    size_t location,
+    int32_t code,
+    const char* layerPrefix,
+    const char* msg,
+    void* userData
+);
+void setupDebugCallback(struct Engine* engine);
+void destroyDebugCallback(struct Engine* engine);
+
+// WINDOW SURFACE
+void createSurface(struct Engine* engine);
+void destroySurface(struct Engine* engine);
+
+// PHYSICAL DEVICE (GPU)
+void getPhysicalDevice(struct Engine* engine);
+_Bool isDeviceSuitable(struct Engine* engine, VkPhysicalDevice* physicalDevice);
+_Bool checkDeviceExtensionSupport(VkPhysicalDevice* physicalDevice);
+struct SwapChainSupportDetails querySwapChainSupport(
+    struct Engine* engine,
+    VkPhysicalDevice* physicalDevice
+);
+struct QueueFamilyIndices findQueueFamilies(
+    struct Engine* engine,
+    VkPhysicalDevice* physicalDevice
+);
+_Bool queueFamilyComplete(struct QueueFamilyIndices* indices);
+
+// LOGICAL DEVICE
+void createLogicalDevice(struct Engine* engine);
+void destroyLogicalDevice(struct Engine* engine);
+
+// SWAPCHAIN
+void createSwapChain(struct Engine* engine);
+void destroySwapChain(struct Engine* engine);
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(
+    VkSurfaceFormatKHR* availableFormats,
+    int formatCount
+);
+VkPresentModeKHR chooseSwapPresentMode(
+    VkPresentModeKHR* availablePresentModes,
+    int presentModeCount
+);
+VkExtent2D chooseSwapExtent(
+    const VkSurfaceCapabilitiesKHR* capabilities
+);
+
+// IMAGE VIEWS
+void createImageViews(struct Engine* engine);
+void destroyImageViews(struct Engine* engine);
+
+// RENDER PASS
+void createRenderPass(struct Engine* engine);
+void destroyRenderPass(struct Engine* engine);
+
+// GRAPHICS PIPELINE
+void createGraphicsPipeline(struct Engine* engine);
+void destroyGraphicsPipeline(struct Engine* engine);
+char* readFile(const char* fname, uint32_t* fsize);
+void createShaderModule(
+    struct Engine* engine,
+    char* code,
+    uint32_t codeSize,
+    VkShaderModule* shaderModule
+);
+
+// FRAMEBUFFERS
+void createFramebuffers(struct Engine* engine);
+void destroyFramebuffers(struct Engine* engine);
+
+// COMMAND POOL
+void createCommandPool(struct Engine* engine);
+void destroyCommandPool(struct Engine* engine);
+void createCommandBuffers(struct Engine* engine);
+void freeCommandBuffers(struct Engine* engine);
+
+// SEMAPHORES
+void createSemaphores(struct Engine* engine);
+void destroySemaphores(struct Engine* engine);
+
 void drawFrame(struct Engine* engine);
 
+/*  -----------------------------
+ *  --- Main engine functions ---
+ *  -----------------------------   */
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
     self->physicalDevice = VK_NULL_HANDLE;
@@ -115,138 +219,28 @@ void EngineRun(struct Engine* self)
 }
 void EngineDestroy(struct Engine* self)
 {
-    uint32_t i;
-
-    vkDestroySemaphore(self->device, self->imageAvailable, NULL);
-    vkDestroySemaphore(self->device, self->renderFinished, NULL);
-
-    vkFreeCommandBuffers(
-        self->device,
-        self->commandPool,
-        self->imageCount,
-        self->commandBuffers
-    );
-
-    free(self->commandBuffers);
-
-    // Destroy command pool
-    vkDestroyCommandPool(self->device, self->commandPool, NULL);
-
-    // Destroy frame buffers, same number as swapchain images
-    if (self->framebuffers != NULL)
-    {
-        for (i=0; i<self->imageCount; i++)
-        {
-            vkDestroyFramebuffer(self->device, self->framebuffers[i], NULL);
-        }
-    }
-
-    // Free extensions
-    for (i=0; i<self->surfaceExtensionCount; i++)
-    {
-        free(self->surfaceExtensions[i]);
-    }
-    for (i=0; i<self->deviceExtensionCount; i++)
-    {
-        free(self->deviceExtensions[i]);
-    }
-
-    vkDestroyPipeline(self->device, self->graphicsPipeline, NULL);
-    vkDestroyPipelineLayout(self->device, self->pipelineLayout, NULL);
-    vkDestroyRenderPass(self->device, self->renderPass, NULL);
-
-    // Destroy all imageviews
-    // TODO: Destroy as many image views as there are created
-    // in case application fails in the middle of createing imageviews
-    if (self->imageViews != NULL)
-    {
-        for (i=0; i<self->imageCount; i++)
-        {
-            vkDestroyImageView(self->device, self->imageViews[i], NULL);
-        }
-    }
-
-    freeSwapChainSupportDetails(&(self->swapChainDetails));
-
-    vkDestroySwapchainKHR(self->device, self->swapChain, NULL);
-    vkDestroyDevice(self->device, NULL);
-    vkDestroySurfaceKHR(self->instance, self->surface, NULL);
-    self->destroyDebugCallback(
-        self->instance,
-        self->debugCallback,
-        NULL
-    );
-    vkDestroyInstance(self->instance, NULL);
+    destroySemaphores(self);
+    freeCommandBuffers(self);
+    destroyCommandPool(self);
+    destroyFramebuffers(self);
+    freeExtensions(self);
+    destroyGraphicsPipeline(self);
+    destroyRenderPass(self);
+    destroyImageViews(self);
+    destroySwapChain(self);
+    destroyLogicalDevice(self);
+    destroySurface(self);
+    destroyDebugCallback(self);
+    destroyInstance(self);
 }
 
-void createInstance(struct Engine* engine);
-_Bool checkValidationSupport(
-    uint32_t validationLayerCount,
-    const char** validationLayers
-);
-void getRequiredExtensions(struct Engine* engine);
-static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-    VkDebugReportFlagsEXT flags,
-    VkDebugReportObjectTypeEXT objType,
-    uint64_t obj,
-    size_t location,
-    int32_t code,
-    const char* layerPrefix,
-    const char* msg,
-    void* userData
-);
-void setupDebugCallback(struct Engine* engine);
-void createSurface(struct Engine* engine);
-void getPhysicalDevice(struct Engine* engine);
-_Bool isDeviceSuitable(struct Engine* engine, VkPhysicalDevice* physicalDevice);
-_Bool checkDeviceExtensionSupport(VkPhysicalDevice* physicalDevice);
-_Bool extensionAvailable(
-    const char* extensionName,
-    VkExtensionProperties* availableExtensions,
-    int extensionCount
-);
-struct SwapChainSupportDetails querySwapChainSupport(
-    struct Engine* engine,
-    VkPhysicalDevice* physicalDevice
-);
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(
-    VkSurfaceFormatKHR* availableFormats,
-    int formatCount
-);
-VkPresentModeKHR chooseSwapPresentMode(
-    VkPresentModeKHR* availablePresentModes,
-    int presentModeCount
-);
-VkExtent2D chooseSwapExtent(
-    const VkSurfaceCapabilitiesKHR* capabilities
-);
-struct QueueFamilyIndices findQueueFamilies(
-    struct Engine* engine,
-    VkPhysicalDevice* physicalDevice
-);
-_Bool queueFamilyComplete(struct QueueFamilyIndices* indices);
-void createLogicalDevice(struct Engine* engine);
-void createSwapChain(struct Engine* engine);
-void createImageViews(struct Engine* engine);
-void createRenderPass(struct Engine* engine);
-char* readFile(const char* fname, uint32_t* fsize);
-void createGraphicsPipeline(struct Engine* engine);
-void createShaderModule(
-    struct Engine* engine,
-    char* code,
-    uint32_t codeSize,
-    VkShaderModule* shaderModule
-);
-void createFrameBuffers(struct Engine* engine);
-void createCommandPool(struct Engine* engine);
-void createCommandBuffers(struct Engine* engine);
-void createSemaphores(struct Engine* engine);
-
+/*  -----------------------------
+ *  ----- Utility functions -----
+ *  -----------------------------   */
 uint32_t min(uint32_t a, uint32_t b)
 {
     return (a < b ? a : b);
 }
-
 uint32_t max(uint32_t a, uint32_t b)
 {
     return (a > b ? a : b);
@@ -265,6 +259,7 @@ int main() {
 
     struct Engine* engine = calloc(1, sizeof(*engine));
     EngineInit(engine, window);
+
     createInstance(engine);
     setupDebugCallback(engine);
     createSurface(engine);
@@ -274,7 +269,7 @@ int main() {
     createImageViews(engine);
     createRenderPass(engine);
     createGraphicsPipeline(engine);
-    createFrameBuffers(engine);
+    createFramebuffers(engine);
     createCommandPool(engine);
     createCommandBuffers(engine);
     createSemaphores(engine);
@@ -282,18 +277,16 @@ int main() {
     EngineRun(engine);
 
     EngineDestroy(engine);
-
     free(engine);
 
-    // Close window
     glfwDestroyWindow(window);
 
-    // Stop GLFW
     glfwTerminate();
 
     return 0;
 }
 
+// INSTANCE
 void createInstance(struct Engine* engine)
 {
     VkApplicationInfo appInfo;
@@ -344,6 +337,12 @@ void createInstance(struct Engine* engine)
     }
 }
 
+void destroyInstance(struct Engine* engine)
+{
+    vkDestroyInstance(engine->instance, NULL);
+}
+
+// VALIDATION SUPPORT
 _Bool checkValidationSupport(uint32_t validationLayerCount, const char** validationLayers)
 {
     uint32_t availableLayerCount;
@@ -372,6 +371,7 @@ _Bool checkValidationSupport(uint32_t validationLayerCount, const char** validat
     return 1;
 }
 
+// DEVICE EXTENSIONS
 void getRequiredExtensions(struct Engine* engine)
 {
     // Get OS specific extensions from glfw
@@ -396,6 +396,20 @@ void getRequiredExtensions(struct Engine* engine)
     engine->surfaceExtensionCount = i;
 }
 
+void freeExtensions(struct Engine* engine)
+{
+    uint32_t i;
+    for (i=0; i< engine->surfaceExtensionCount; i++)
+    {
+        free(engine->surfaceExtensions[i]);
+    }
+    for (i=0; i< engine->deviceExtensionCount; i++)
+    {
+        free(engine->deviceExtensions[i]);
+    }
+}
+
+// DEBUG CALLBACK
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugReportFlagsEXT flags,
     VkDebugReportObjectTypeEXT objType,
@@ -474,6 +488,16 @@ void setupDebugCallback(struct Engine* engine)
     }
 }
 
+void destroyDebugCallback(struct Engine* engine)
+{
+    engine->destroyDebugCallback(
+        engine->instance,
+        engine->debugCallback,
+        NULL
+    );
+}
+
+// WINDOW SURFACE
 void createSurface(struct Engine* engine)
 {
     VkResult result;
@@ -492,6 +516,12 @@ void createSurface(struct Engine* engine)
 
 }
 
+void destroySurface(struct Engine* engine)
+{
+    vkDestroySurfaceKHR(engine->instance, engine->surface, NULL);
+}
+
+// PHYSICAL DEVICE (GPU)
 void getPhysicalDevice(struct Engine* engine)
 {
     // Determine number of available devices (GPUs)
@@ -739,6 +769,7 @@ _Bool queueFamilyComplete(struct QueueFamilyIndices* indices)
     return indices->graphicsFamily >= 0 && indices->presentFamily >= 0;
 }
 
+// LOGICAL DEVICE
 void createLogicalDevice(struct Engine* engine)
 {
     VkDeviceQueueCreateInfo queueCreateInfos[2];
@@ -807,6 +838,12 @@ void createLogicalDevice(struct Engine* engine)
     );
 }
 
+void destroyLogicalDevice(struct Engine* engine)
+{
+    vkDestroyDevice(engine->device, NULL);
+}
+
+// SWAPCHAIN
 void createSwapChain(struct Engine* engine)
 {
     struct SwapChainSupportDetails swapChainSupport;
@@ -904,6 +941,12 @@ void createSwapChain(struct Engine* engine)
     freeSwapChainSupportDetails(&swapChainSupport);
 }
 
+void destroySwapChain(struct Engine* engine)
+{
+    freeSwapChainSupportDetails(&(engine->swapChainDetails));
+    vkDestroySwapchainKHR(engine->device, engine->swapChain, NULL);
+}
+
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(VkSurfaceFormatKHR* availableFormats, int formatCount)
 {
     if (formatCount == 1 && availableFormats->format == VK_FORMAT_UNDEFINED)
@@ -958,6 +1001,7 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR* capabilities)
     return actualExtent;
 }
 
+// IMAGE VIEWS
 void createImageViews(struct Engine* engine)
 {
     engine->imageViews = calloc(
@@ -1000,6 +1044,16 @@ void createImageViews(struct Engine* engine)
     }
 }
 
+void destroyImageViews(struct Engine* engine)
+{
+    uint32_t i;
+    for (i=0; i< engine->imageCount; i++)
+    {
+        vkDestroyImageView(engine->device, engine->imageViews[i], NULL);
+    }
+}
+
+// RENDER PASS
 void createRenderPass(struct Engine* engine)
 {
     VkAttachmentDescription colorAttachment;
@@ -1067,6 +1121,12 @@ void createRenderPass(struct Engine* engine)
     }
 }
 
+void destroyRenderPass(struct Engine* engine)
+{
+    vkDestroyRenderPass(engine->device, engine->renderPass, NULL);
+}
+
+// GRAPHICS PIPELINE
 void createGraphicsPipeline(struct Engine* engine)
 {
     char* vertShaderFname = "shaders/vert.spv";
@@ -1277,6 +1337,12 @@ void createGraphicsPipeline(struct Engine* engine)
     vkDestroyShaderModule(engine->device, fragShaderModule, NULL);
 }
 
+void destroyGraphicsPipeline(struct Engine* engine)
+{
+    vkDestroyPipeline(engine->device, engine->graphicsPipeline, NULL);
+    vkDestroyPipelineLayout(engine->device, engine->pipelineLayout, NULL);
+}
+
 char* readFile(const char* fname, uint32_t* fsize)
 {
     FILE *fp = fopen(fname, "r");
@@ -1324,7 +1390,8 @@ void createShaderModule(struct Engine* engine, char* code, uint32_t codeSize, Vk
     }
 }
 
-void createFrameBuffers(struct Engine* engine)
+// FRAMEBUFFERS
+void createFramebuffers(struct Engine* engine)
 {
     engine->framebuffers = malloc(
             engine->imageCount * sizeof(*(engine->framebuffers)));
@@ -1361,6 +1428,16 @@ void createFrameBuffers(struct Engine* engine)
     }
 }
 
+void destroyFramebuffers(struct Engine* engine)
+{
+    uint32_t i;
+    for (i=0; i< engine->imageCount; i++)
+    {
+        vkDestroyFramebuffer(engine->device, engine->framebuffers[i], NULL);
+    }
+}
+
+// COMMAND POOL
 void createCommandPool(struct Engine* engine)
 {
     VkCommandPoolCreateInfo createInfo;
@@ -1382,6 +1459,11 @@ void createCommandPool(struct Engine* engine)
         fprintf(stderr, "Failed to create command pool.\n");
         exit(-1);
     }
+}
+
+void destroyCommandPool(struct Engine* engine)
+{
+    vkDestroyCommandPool(engine->device, engine->commandPool, NULL);
 }
 
 void createCommandBuffers(struct Engine* engine)
@@ -1461,6 +1543,19 @@ void createCommandBuffers(struct Engine* engine)
     }
 }
 
+void freeCommandBuffers(struct Engine* engine)
+{
+    vkFreeCommandBuffers(
+        engine->device,
+        engine->commandPool,
+        engine->imageCount,
+        engine->commandBuffers
+    );
+
+    free(engine->commandBuffers);
+}
+
+// SEMAPHORES
 void createSemaphores(struct Engine* engine)
 {
     VkSemaphoreCreateInfo createInfo;
@@ -1492,6 +1587,12 @@ void createSemaphores(struct Engine* engine)
         fprintf(stderr, "Failed to create semaphore.\n");
         exit(-1);
     }
+}
+
+void destroySemaphores(struct Engine* engine)
+{
+    vkDestroySemaphore(engine->device, engine->imageAvailable, NULL);
+    vkDestroySemaphore(engine->device, engine->renderFinished, NULL);
 }
 
 void drawFrame(struct Engine* engine)
