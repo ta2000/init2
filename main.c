@@ -187,11 +187,14 @@ void destroySemaphores(struct Engine* engine);
 
 void drawFrame(struct Engine* engine);
 
+void recreateSwapChain(struct Engine* engine);
+
 /*  -----------------------------
  *  --- Main engine functions ---
  *  -----------------------------   */
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
+    self->instance = VK_NULL_HANDLE;
     self->physicalDevice = VK_NULL_HANDLE;
     self->device = VK_NULL_HANDLE;
 
@@ -230,7 +233,8 @@ void EngineDestroy(struct Engine* self)
     destroySwapChain(self);
     destroyLogicalDevice(self);
     destroySurface(self);
-    destroyDebugCallback(self);
+    if (validationEnabled)
+        destroyDebugCallback(self);
     destroyInstance(self);
 }
 
@@ -246,7 +250,18 @@ uint32_t max(uint32_t a, uint32_t b)
     return (a > b ? a : b);
 }
 
+static void onWindowResized(GLFWwindow* window, int width, int height)
+{
+    if (width == 0 || height == 0)
+        return;
+
+    struct Engine* engine = (struct Engine*)glfwGetWindowUserPointer(window);
+    recreateSwapChain(engine);
+}
+
 int main() {
+    struct Engine* engine = calloc(1, sizeof(*engine));
+
     // Init GLFW
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -256,8 +271,9 @@ int main() {
         NULL,
         NULL
     );
+    glfwSetWindowUserPointer(window, engine);
+    glfwSetWindowSizeCallback(window, onWindowResized);
 
-    struct Engine* engine = calloc(1, sizeof(*engine));
     EngineInit(engine, window);
 
     createInstance(engine);
@@ -903,20 +919,29 @@ void createSwapChain(struct Engine* engine)
     createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     createInfo.presentMode = presentMode;
     createInfo.clipped = VK_TRUE;
-    createInfo.oldSwapchain = VK_NULL_HANDLE;
 
+    VkSwapchainKHR oldSwapChain = engine->swapChain;
+    createInfo.oldSwapchain = oldSwapChain;
+
+    VkSwapchainKHR newSwapChain;
     VkResult result;
     result = vkCreateSwapchainKHR(
         engine->device,
         &createInfo,
         NULL,
-        &(engine->swapChain)
+        &newSwapChain
     );
     if (result != VK_SUCCESS)
     {
         fprintf(stderr, "Failed to create swapchain.\n");
         exit(-1);
     }
+
+    engine->swapChain = newSwapChain;
+
+    // Destroy the old swapchain when recreating
+    if (oldSwapChain != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(engine->device, oldSwapChain, NULL);
 
     vkGetSwapchainImagesKHR(
         engine->device,
@@ -1598,7 +1623,7 @@ void destroySemaphores(struct Engine* engine)
 void drawFrame(struct Engine* engine)
 {
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(
+    VkResult result = vkAcquireNextImageKHR(
         engine->device,
         engine->swapChain,
         UINT64_MAX, // Wait for next image indefinitely (ns)
@@ -1606,6 +1631,16 @@ void drawFrame(struct Engine* engine)
         VK_NULL_HANDLE,
         &imageIndex
     );
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        recreateSwapChain(engine);
+    }
+    else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        fprintf(stderr, "Swapchain image could not be acquired.\n");
+        exit(-1);
+    }
 
     VkSubmitInfo submitInfo;
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1627,14 +1662,18 @@ void drawFrame(struct Engine* engine)
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
-    VkResult result;
     result = vkQueueSubmit(
         engine->graphicsQueue,
         1,
         &submitInfo,
         VK_NULL_HANDLE
     );
-    if (result != VK_SUCCESS)
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    {
+        recreateSwapChain(engine);
+    }
+    else if (result != VK_SUCCESS)
     {
         fprintf(stderr, "Error while submitting queue.\n");
         exit(-1);
@@ -1654,4 +1693,27 @@ void drawFrame(struct Engine* engine)
     presentInfo.pResults = NULL;
 
     vkQueuePresentKHR(engine->presentQueue, &presentInfo);
+}
+
+void recreateSwapChain(struct Engine* engine)
+{
+    vkDeviceWaitIdle(engine->device);
+
+    // Swapchain deletion is handled in createSwapChain
+    createSwapChain(engine);
+
+    destroyImageViews(engine);
+    createImageViews(engine);
+
+    destroyRenderPass(engine);
+    createRenderPass(engine);
+
+    destroyGraphicsPipeline(engine);
+    createGraphicsPipeline(engine);
+
+    destroyFramebuffers(engine);
+    createFramebuffers(engine);
+
+    freeCommandBuffers(engine);
+    createCommandBuffers(engine);
 }
