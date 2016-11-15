@@ -11,6 +11,40 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const _Bool validationEnabled = 1;
 
+struct Vertex
+{
+    float position[2];
+    float color[3];
+};
+VkVertexInputBindingDescription getBindingDescription()
+{
+    VkVertexInputBindingDescription description;
+    description.binding = 0;
+    description.stride = sizeof(struct Vertex);
+    description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    return description;
+}
+VkVertexInputAttributeDescription* getAttributeDescriptions()
+{
+    VkVertexInputAttributeDescription* descriptions;
+    descriptions = calloc(2, sizeof(VkVertexInputAttributeDescription));
+
+    // Position
+    descriptions[0].location = 0;
+    descriptions[0].binding = 0;
+    descriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    descriptions[0].offset = offsetof(struct Vertex, position);
+
+    // Color
+    descriptions[1].location = 1;
+    descriptions[1].binding = 0;
+    descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    descriptions[1].offset = offsetof(struct Vertex, color);
+
+    return descriptions;
+}
+
 struct QueueFamilyIndices
 {
     int graphicsFamily;
@@ -75,8 +109,16 @@ struct Engine
     // Frame buffers
     VkFramebuffer* framebuffers;
 
-    // Command pool/buffers
+    // Command pool
     VkCommandPool commandPool;
+
+    // Vertex buffer
+    uint32_t vertexCount;
+    struct Vertex* vertices;
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
+
+    // Command buffers
     VkCommandBuffer* commandBuffers;
 
     // Semaphores
@@ -178,6 +220,18 @@ void destroyFramebuffers(struct Engine* engine);
 // COMMAND POOL
 void createCommandPool(struct Engine* engine);
 void destroyCommandPool(struct Engine* engine);
+
+// VERTEX BUFFER
+void createVertexBuffer(struct Engine* engine);
+void destroyVertexBuffer(struct Engine* engine);
+void freeVertexBufferMemory(struct Engine* engine);
+uint32_t findMemType(
+    struct Engine* engine,
+    uint32_t typeFilter,
+    VkMemoryPropertyFlags properties
+);
+
+// COMMAND BUFFERS
 void createCommandBuffers(struct Engine* engine);
 void freeCommandBuffers(struct Engine* engine);
 
@@ -202,6 +256,16 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     self->deviceExtensionCount = 0;
 
     self->framebuffers = NULL;
+
+    struct Vertex vertices[] = {
+        {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
+        {{0.5f, 0.5f }, {0.0f, 1.0f, 0.0f}},
+        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+    };
+    self->vertexCount = 3;
+    self->vertices = malloc(sizeof(vertices));
+    memcpy(self->vertices, vertices, sizeof(vertices));
+
     self->commandBuffers = NULL;
 
     self->swapChainImages = NULL;
@@ -224,6 +288,8 @@ void EngineDestroy(struct Engine* self)
 {
     destroySemaphores(self);
     freeCommandBuffers(self);
+    freeVertexBufferMemory(self);
+    destroyVertexBuffer(self);
     destroyCommandPool(self);
     destroyFramebuffers(self);
     freeExtensions(self);
@@ -287,6 +353,7 @@ int main() {
     createGraphicsPipeline(engine);
     createFramebuffers(engine);
     createCommandPool(engine);
+    createVertexBuffer(engine);
     createCommandBuffers(engine);
     createSemaphores(engine);
 
@@ -1229,6 +1296,14 @@ void createGraphicsPipeline(struct Engine* engine)
     memset(&vertInputInfo, 0, sizeof(vertInputInfo));
     vertInputInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertInputInfo.pNext = NULL;
+    vertInputInfo.flags = 0;
+    VkVertexInputBindingDescription binding = getBindingDescription();
+    VkVertexInputAttributeDescription* attribute = getAttributeDescriptions();
+    vertInputInfo.vertexBindingDescriptionCount = 1;
+    vertInputInfo.pVertexBindingDescriptions = &binding;
+    vertInputInfo.vertexAttributeDescriptionCount = 2;
+    vertInputInfo.pVertexAttributeDescriptions = attribute;
 
     memset(&inputAssemblyInfo, 0, sizeof(inputAssemblyInfo));
     inputAssemblyInfo.sType =
@@ -1360,6 +1435,7 @@ void createGraphicsPipeline(struct Engine* engine)
     free(fragShader);
     vkDestroyShaderModule(engine->device, vertShaderModule, NULL);
     vkDestroyShaderModule(engine->device, fragShaderModule, NULL);
+    free(attribute);
 }
 
 void destroyGraphicsPipeline(struct Engine* engine)
@@ -1491,6 +1567,103 @@ void destroyCommandPool(struct Engine* engine)
     vkDestroyCommandPool(engine->device, engine->commandPool, NULL);
 }
 
+// VERTEX BUFFER
+void createVertexBuffer(struct Engine* engine)
+{
+    VkBufferCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+    createInfo.size = sizeof(engine->vertices[0]) * engine->vertexCount;
+    createInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    // Only required for sharing mode concurrent
+    createInfo.queueFamilyIndexCount = 0;
+    createInfo.pQueueFamilyIndices = NULL;
+
+    vkCreateBuffer(engine->device, &createInfo, NULL, &(engine->vertexBuffer));
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(
+        engine->device,
+        engine->vertexBuffer,
+        &memRequirements
+    );
+
+    VkMemoryAllocateInfo allocInfo;
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.pNext = NULL;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemType(
+        engine,
+        memRequirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    VkResult result;
+    result = vkAllocateMemory(
+        engine->device,
+        &allocInfo,
+        NULL,
+        &(engine->vertexBufferMemory)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to allocate memory for vertex buffer.\n");
+        exit(-1);
+    }
+
+    vkBindBufferMemory(
+        engine->device,
+        engine->vertexBuffer,
+        engine->vertexBufferMemory,
+        0
+    );
+
+    void* data;
+    vkMapMemory(
+        engine->device,
+        engine->vertexBufferMemory,
+        0,
+        createInfo.size,
+        0,
+        &data
+    );
+    memcpy(data, engine->vertices, (size_t)createInfo.size);
+    vkUnmapMemory(engine->device, engine->vertexBufferMemory);
+}
+
+void destroyVertexBuffer(struct Engine* engine)
+{
+    vkDestroyBuffer(engine->device, engine->vertexBuffer, NULL);
+}
+
+void freeVertexBufferMemory(struct Engine* engine)
+{
+    vkFreeMemory(engine->device, engine->vertexBufferMemory, NULL);
+}
+
+uint32_t findMemType(struct Engine* engine, uint32_t typeFilter, VkMemoryPropertyFlags properties)
+{
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(engine->physicalDevice, &memProperties);
+
+    uint32_t i;
+    for (i=0; i<memProperties.memoryTypeCount; i++)
+    {
+        if ((typeFilter & (1 << i)) &&
+            (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
+        {
+            return i;
+        }
+    }
+
+    fprintf(stderr, "Failed to find a suitable memory type.\n");
+    exit(-1);
+}
+
+// COMMAND BUFFERS
 void createCommandBuffers(struct Engine* engine)
 {
     engine->commandBuffers = malloc(
@@ -1554,7 +1727,18 @@ void createCommandBuffers(struct Engine* engine)
             engine->graphicsPipeline
         );
 
-        vkCmdDraw(engine->commandBuffers[i], 3, 1, 0, 0);
+        VkBuffer vertexBuffers[] = {engine->vertexBuffer};
+        VkDeviceSize offsets[] = {0};
+
+        vkCmdBindVertexBuffers(
+            engine->commandBuffers[i],
+            0,
+            1,
+            vertexBuffers,
+            offsets
+        );
+
+        vkCmdDraw(engine->commandBuffers[i], engine->vertexCount, 1, 0, 0);
 
         vkCmdEndRenderPass(engine->commandBuffers[i]);
 
