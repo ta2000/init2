@@ -117,6 +117,8 @@ struct Engine
     struct Vertex* vertices;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
 
     // Command buffers
     VkCommandBuffer* commandBuffers;
@@ -223,6 +225,20 @@ void destroyCommandPool(struct Engine* engine);
 
 // VERTEX BUFFER
 void createVertexBuffer(struct Engine* engine);
+void copyBuffer(
+    struct Engine* engine,
+    VkBuffer* src,
+    VkBuffer* dst,
+    VkDeviceSize size
+);
+void createBuffer(
+    struct Engine* engine,
+    VkDeviceSize size,
+    VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties,
+    VkBuffer* buffer,
+    VkDeviceMemory* bufferMemory
+);
 void destroyVertexBuffer(struct Engine* engine);
 void freeVertexBufferMemory(struct Engine* engine);
 uint32_t findMemType(
@@ -258,9 +274,9 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     self->framebuffers = NULL;
 
     struct Vertex vertices[] = {
-        {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
+        {{0.0f, -0.5f}, {0.0f, 0.0f, 1.0f}},
         {{0.5f, 0.5f }, {0.0f, 1.0f, 0.0f}},
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+        {{-0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}}
     };
     self->vertexCount = 3;
     self->vertices = malloc(sizeof(vertices));
@@ -1570,23 +1586,115 @@ void destroyCommandPool(struct Engine* engine)
 // VERTEX BUFFER
 void createVertexBuffer(struct Engine* engine)
 {
+    VkDeviceSize bufferSize = sizeof(engine->vertices[0]) * engine->vertexCount;
+    createBuffer(
+        engine,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &(engine->stagingBuffer),
+        &(engine->stagingBufferMemory)
+    );
+
+    void* data;
+    vkMapMemory(
+        engine->device,
+        engine->stagingBufferMemory,
+        0,
+        bufferSize,
+        0,
+        &data
+    );
+    memcpy(data, engine->vertices, (size_t)bufferSize);
+    vkUnmapMemory(engine->device, engine->stagingBufferMemory);
+
+    createBuffer(
+        engine,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        &(engine->vertexBuffer),
+        &(engine->vertexBufferMemory)
+    );
+    copyBuffer(
+        engine,
+        &(engine->stagingBuffer),
+        &(engine->vertexBuffer),
+        bufferSize
+    );
+}
+
+void copyBuffer(struct Engine* engine, VkBuffer* src, VkBuffer* dst, VkDeviceSize size)
+{
+    VkCommandBufferAllocateInfo allocInfo;
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.pNext = NULL;
+    allocInfo.commandPool = engine->commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(engine->device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo;
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.pNext = NULL;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    beginInfo.pInheritanceInfo = NULL;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    VkBufferCopy copyRegion;
+    copyRegion.srcOffset = 0;
+    copyRegion.dstOffset = 0;
+    copyRegion.size = size;
+    vkCmdCopyBuffer(commandBuffer, *src, *dst, 1, &copyRegion);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo;
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.pNext = NULL;
+    submitInfo.waitSemaphoreCount = 0;
+    submitInfo.pWaitSemaphores = NULL;
+    submitInfo.pWaitDstStageMask = NULL;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.signalSemaphoreCount = 0;
+    submitInfo.pSignalSemaphores = NULL;
+
+    vkQueueSubmit(engine->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(engine->graphicsQueue);
+
+    vkFreeCommandBuffers(
+        engine->device,
+        engine->commandPool,
+        1,
+        &commandBuffer
+    );
+}
+
+void createBuffer(struct Engine* engine, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer* buffer, VkDeviceMemory* bufferMemory)
+{
     VkBufferCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     createInfo.pNext = NULL;
     createInfo.flags = 0;
-    createInfo.size = sizeof(engine->vertices[0]) * engine->vertexCount;
-    createInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    createInfo.size = size;
+    createInfo.usage = usage;
     createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     // Only required for sharing mode concurrent
     createInfo.queueFamilyIndexCount = 0;
     createInfo.pQueueFamilyIndices = NULL;
 
-    vkCreateBuffer(engine->device, &createInfo, NULL, &(engine->vertexBuffer));
+    vkCreateBuffer(engine->device, &createInfo, NULL, buffer);
 
     VkMemoryRequirements memRequirements;
     vkGetBufferMemoryRequirements(
         engine->device,
-        engine->vertexBuffer,
+        *buffer,
         &memRequirements
     );
 
@@ -1597,8 +1705,7 @@ void createVertexBuffer(struct Engine* engine)
     allocInfo.memoryTypeIndex = findMemType(
         engine,
         memRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        properties
     );
 
     VkResult result;
@@ -1606,7 +1713,7 @@ void createVertexBuffer(struct Engine* engine)
         engine->device,
         &allocInfo,
         NULL,
-        &(engine->vertexBufferMemory)
+        bufferMemory
     );
     if (result != VK_SUCCESS)
     {
@@ -1616,32 +1723,22 @@ void createVertexBuffer(struct Engine* engine)
 
     vkBindBufferMemory(
         engine->device,
-        engine->vertexBuffer,
-        engine->vertexBufferMemory,
+        *buffer,
+        *bufferMemory,
         0
     );
-
-    void* data;
-    vkMapMemory(
-        engine->device,
-        engine->vertexBufferMemory,
-        0,
-        createInfo.size,
-        0,
-        &data
-    );
-    memcpy(data, engine->vertices, (size_t)createInfo.size);
-    vkUnmapMemory(engine->device, engine->vertexBufferMemory);
 }
 
 void destroyVertexBuffer(struct Engine* engine)
 {
     vkDestroyBuffer(engine->device, engine->vertexBuffer, NULL);
+    vkDestroyBuffer(engine->device, engine->stagingBuffer, NULL);
 }
 
 void freeVertexBufferMemory(struct Engine* engine)
 {
     vkFreeMemory(engine->device, engine->vertexBufferMemory, NULL);
+    vkFreeMemory(engine->device, engine->stagingBufferMemory, NULL);
 }
 
 uint32_t findMemType(struct Engine* engine, uint32_t typeFilter, VkMemoryPropertyFlags properties)
