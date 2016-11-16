@@ -84,7 +84,7 @@ struct Engine
     // Queues
     VkQueue graphicsQueue;
     VkQueue presentQueue;
-    struct QueueFamilyIndices indices;
+    struct QueueFamilyIndices queueFamilyIndices;
 
     // Physical/logical device
     VkPhysicalDevice physicalDevice;
@@ -115,10 +115,12 @@ struct Engine
     // Vertex buffer
     uint32_t vertexCount;
     struct Vertex* vertices;
+    uint16_t* indices;
+    uint32_t indexCount;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
+    VkBuffer indexBuffer;
+    VkDeviceMemory indexBufferMemory;
 
     // Command buffers
     VkCommandBuffer* commandBuffers;
@@ -175,7 +177,7 @@ struct QueueFamilyIndices findQueueFamilies(
     struct Engine* engine,
     VkPhysicalDevice* physicalDevice
 );
-_Bool queueFamilyComplete(struct QueueFamilyIndices* indices);
+_Bool queueFamilyComplete(struct QueueFamilyIndices* queueFamilyIndices);
 
 // LOGICAL DEVICE
 void createLogicalDevice(struct Engine* engine);
@@ -247,6 +249,11 @@ uint32_t findMemType(
     VkMemoryPropertyFlags properties
 );
 
+// INDEX BUFFER
+void createIndexBuffer(struct Engine* engine);
+void destroyIndexBuffer(struct Engine* engine);
+void freeIndexBufferMemory(struct Engine* engine);
+
 // COMMAND BUFFERS
 void createCommandBuffers(struct Engine* engine);
 void freeCommandBuffers(struct Engine* engine);
@@ -274,13 +281,21 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     self->framebuffers = NULL;
 
     struct Vertex vertices[] = {
-        {{0.0f, -0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{0.5f, 0.5f }, {0.0f, 1.0f, 0.0f}},
-        {{-0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}}
+        {{-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}},
+        {{0.5f, -0.5f }, {0.0f, 1.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}}
     };
-    self->vertexCount = 3;
+    self->vertexCount = sizeof(vertices)/sizeof(vertices[0]);
     self->vertices = malloc(sizeof(vertices));
     memcpy(self->vertices, vertices, sizeof(vertices));
+
+    uint16_t indices[] = {
+        0, 1, 2, 2, 3, 0
+    };
+    self->indexCount = sizeof(indices)/sizeof(indices[0]);
+    self->indices = malloc(sizeof(indices));
+    memcpy(self->indices, indices, sizeof(indices));
 
     self->commandBuffers = NULL;
 
@@ -304,6 +319,8 @@ void EngineDestroy(struct Engine* self)
 {
     destroySemaphores(self);
     freeCommandBuffers(self);
+    freeIndexBufferMemory(self);
+    destroyIndexBuffer(self);
     freeVertexBufferMemory(self);
     destroyVertexBuffer(self);
     destroyCommandPool(self);
@@ -370,6 +387,7 @@ int main() {
     createFramebuffers(engine);
     createCommandPool(engine);
     createVertexBuffer(engine);
+    createIndexBuffer(engine);
     createCommandBuffers(engine);
     createSemaphores(engine);
 
@@ -659,7 +677,7 @@ void getPhysicalDevice(struct Engine* engine)
 }
 
 // Determines whether a physical device has proper support, returns true (1)
-// if it does and sets queue family indices of engine->indices
+// if it does and sets queue family indices of engine->queueFamilyIndices
 _Bool isDeviceSuitable(struct Engine* engine, VkPhysicalDevice* physicalDevice)
 {
     // Device extensions
@@ -724,9 +742,9 @@ _Bool isDeviceSuitable(struct Engine* engine, VkPhysicalDevice* physicalDevice)
     }
 
     // Queue families
-    engine->indices = findQueueFamilies(engine, physicalDevice);
+    engine->queueFamilyIndices = findQueueFamilies(engine, physicalDevice);
 
-    if (queueFamilyComplete(&(engine->indices)) &&
+    if (queueFamilyComplete(&(engine->queueFamilyIndices)) &&
         extensionsSupported &&
         swapChainAdequate)
     {
@@ -804,7 +822,7 @@ void freeSwapChainSupportDetails(struct SwapChainSupportDetails* details)
 
 struct QueueFamilyIndices findQueueFamilies(struct Engine* engine, VkPhysicalDevice* physicalDevice)
 {
-    struct QueueFamilyIndices indices = {
+    struct QueueFamilyIndices queueFamilyIndices = {
         .graphicsFamily = -1,
         .presentFamily = -1
     };
@@ -837,7 +855,7 @@ struct QueueFamilyIndices findQueueFamilies(struct Engine* engine, VkPhysicalDev
             (queueFamilies[i].queueFlags &
             VK_QUEUE_GRAPHICS_BIT))
         {
-            indices.graphicsFamily = i;
+            queueFamilyIndices.graphicsFamily = i;
         }
 
         // Check if queue family is capable of presenting to window surface
@@ -850,22 +868,22 @@ struct QueueFamilyIndices findQueueFamilies(struct Engine* engine, VkPhysicalDev
         );
         if (queueFamilyCount > 0 && presentSupport)
         {
-            indices.presentFamily = i;
+            queueFamilyIndices.presentFamily = i;
         }
 
         // Stop once a usable queues are found
-        if (queueFamilyComplete(&indices))
+        if (queueFamilyComplete(&queueFamilyIndices))
             break;
     }
 
     free(queueFamilies);
 
-    return indices;
+    return queueFamilyIndices;
 }
 
-_Bool queueFamilyComplete(struct QueueFamilyIndices* indices)
+_Bool queueFamilyComplete(struct QueueFamilyIndices* queueFamilyIndices)
 {
-    return indices->graphicsFamily >= 0 && indices->presentFamily >= 0;
+    return queueFamilyIndices->graphicsFamily >= 0 && queueFamilyIndices->presentFamily >= 0;
 }
 
 // LOGICAL DEVICE
@@ -873,8 +891,8 @@ void createLogicalDevice(struct Engine* engine)
 {
     VkDeviceQueueCreateInfo queueCreateInfos[2];
     int uniqueQueueFamilies[2] = {
-        engine->indices.graphicsFamily,
-        engine->indices.presentFamily
+        engine->queueFamilyIndices.graphicsFamily,
+        engine->queueFamilyIndices.presentFamily
     };
 
     float queuePriority = 1.0f;
@@ -896,7 +914,7 @@ void createLogicalDevice(struct Engine* engine)
     createInfo.pQueueCreateInfos = queueCreateInfos;
     // Passing both pQueueCreateInfos when the indices are the
     // same will result in a validation error
-    if (engine->indices.graphicsFamily == engine->indices.presentFamily)
+    if (engine->queueFamilyIndices.graphicsFamily == engine->queueFamilyIndices.presentFamily)
         createInfo.queueCreateInfoCount = 1;
     else
         createInfo.queueCreateInfoCount = 2;
@@ -924,14 +942,14 @@ void createLogicalDevice(struct Engine* engine)
 
     vkGetDeviceQueue(
         engine->device,
-        engine->indices.graphicsFamily,
+        engine->queueFamilyIndices.graphicsFamily,
         0,
         &(engine->graphicsQueue)
     );
 
     vkGetDeviceQueue(
         engine->device,
-        engine->indices.presentFamily,
+        engine->queueFamilyIndices.presentFamily,
         0,
         &(engine->presentQueue)
     );
@@ -981,11 +999,11 @@ void createSwapChain(struct Engine* engine)
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
     uint32_t queueFamilyIndices[] = {
-        engine->indices.graphicsFamily,
-        engine->indices.presentFamily
+        engine->queueFamilyIndices.graphicsFamily,
+        engine->queueFamilyIndices.presentFamily
     };
 
-    if (engine->indices.graphicsFamily != engine->indices.presentFamily)
+    if (engine->queueFamilyIndices.graphicsFamily != engine->queueFamilyIndices.presentFamily)
     {
         createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
         createInfo.queueFamilyIndexCount = 2;
@@ -1561,7 +1579,7 @@ void createCommandPool(struct Engine* engine)
     createInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     createInfo.pNext = NULL;
     createInfo.flags = 0; // Relates to reset frequency of command buffers
-    createInfo.queueFamilyIndex = engine->indices.graphicsFamily;
+    createInfo.queueFamilyIndex = engine->queueFamilyIndices.graphicsFamily;
 
     VkResult result;
     result = vkCreateCommandPool(
@@ -1587,27 +1605,30 @@ void destroyCommandPool(struct Engine* engine)
 void createVertexBuffer(struct Engine* engine)
 {
     VkDeviceSize bufferSize = sizeof(engine->vertices[0]) * engine->vertexCount;
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+
     createBuffer(
         engine,
         bufferSize,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        &(engine->stagingBuffer),
-        &(engine->stagingBufferMemory)
+        &(stagingBuffer),
+        &(stagingBufferMemory)
     );
 
     void* data;
     vkMapMemory(
         engine->device,
-        engine->stagingBufferMemory,
+        stagingBufferMemory,
         0,
         bufferSize,
         0,
         &data
     );
     memcpy(data, engine->vertices, (size_t)bufferSize);
-    vkUnmapMemory(engine->device, engine->stagingBufferMemory);
+    vkUnmapMemory(engine->device, stagingBufferMemory);
 
     createBuffer(
         engine,
@@ -1620,10 +1641,13 @@ void createVertexBuffer(struct Engine* engine)
     );
     copyBuffer(
         engine,
-        &(engine->stagingBuffer),
+        &(stagingBuffer),
         &(engine->vertexBuffer),
         bufferSize
     );
+
+    vkDestroyBuffer(engine->device, stagingBuffer, NULL);
+    vkFreeMemory(engine->device, stagingBufferMemory, NULL);
 }
 
 void copyBuffer(struct Engine* engine, VkBuffer* src, VkBuffer* dst, VkDeviceSize size)
@@ -1732,13 +1756,11 @@ void createBuffer(struct Engine* engine, VkDeviceSize size, VkBufferUsageFlags u
 void destroyVertexBuffer(struct Engine* engine)
 {
     vkDestroyBuffer(engine->device, engine->vertexBuffer, NULL);
-    vkDestroyBuffer(engine->device, engine->stagingBuffer, NULL);
 }
 
 void freeVertexBufferMemory(struct Engine* engine)
 {
     vkFreeMemory(engine->device, engine->vertexBufferMemory, NULL);
-    vkFreeMemory(engine->device, engine->stagingBufferMemory, NULL);
 }
 
 uint32_t findMemType(struct Engine* engine, uint32_t typeFilter, VkMemoryPropertyFlags properties)
@@ -1758,6 +1780,65 @@ uint32_t findMemType(struct Engine* engine, uint32_t typeFilter, VkMemoryPropert
 
     fprintf(stderr, "Failed to find a suitable memory type.\n");
     exit(-1);
+}
+
+// INDEX BUFFER
+void createIndexBuffer(struct Engine* engine)
+{
+    VkDeviceSize bufferSize = sizeof(engine->indices[0]) * engine->indexCount;
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+
+    createBuffer(
+        engine,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &(stagingBuffer),
+        &(stagingBufferMemory)
+    );
+
+    void* data;
+    vkMapMemory(
+        engine->device,
+        stagingBufferMemory,
+        0,
+        bufferSize,
+        0,
+        &data
+    );
+    memcpy(data, engine->indices, (size_t)bufferSize);
+    vkUnmapMemory(engine->device, stagingBufferMemory);
+
+    createBuffer(
+        engine,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        &(engine->indexBuffer),
+        &(engine->indexBufferMemory)
+    );
+    copyBuffer(
+        engine,
+        &(stagingBuffer),
+        &(engine->indexBuffer),
+        bufferSize
+    );
+
+    vkDestroyBuffer(engine->device, stagingBuffer, NULL);
+    vkFreeMemory(engine->device, stagingBufferMemory, NULL);
+}
+
+void destroyIndexBuffer(struct Engine* engine)
+{
+    vkDestroyBuffer(engine->device, engine->indexBuffer, NULL);
+}
+
+void freeIndexBufferMemory(struct Engine* engine)
+{
+    vkFreeMemory(engine->device, engine->indexBufferMemory, NULL);
 }
 
 // COMMAND BUFFERS
@@ -1835,7 +1916,21 @@ void createCommandBuffers(struct Engine* engine)
             offsets
         );
 
-        vkCmdDraw(engine->commandBuffers[i], engine->vertexCount, 1, 0, 0);
+        vkCmdBindIndexBuffer(
+            engine->commandBuffers[i],
+            engine->indexBuffer,
+            0,
+            VK_INDEX_TYPE_UINT16
+        );
+
+        vkCmdDrawIndexed(
+            engine->commandBuffers[i],
+            engine->indexCount,
+            1,
+            0,
+            0,
+            0
+        );
 
         vkCmdEndRenderPass(engine->commandBuffers[i]);
 
