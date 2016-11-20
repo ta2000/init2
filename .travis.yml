@@ -1,0 +1,15 @@
+language: c
+compiler:
+- gcc
+before_install:
+- sudo apt-get -qq update
+- sudo apt-get install -y wget xz-utils libxcb1-dev xorg-dev unzip cmake
+- wget https://vulkan.lunarg.com/sdk/download/1.0.30.0/linux/vulkansdk-linux-x86_64-1.0.30.0.run
+- chmod +x vulkansdk-linux-x86_64-1.0.30.0.run
+- ./vulkansdk-linux-x86_64-1.0.30.0.run
+- sudo cp -Trv VulkanSDK/1.0.30.0/x86_64/lib /lib64
+- sudo cp -Trv VulkanSDK/1.0.30.0/x86_64/include /usr/include/
+- sudo cp -Trv VulkanSDK/1.0.30.0/x86_64/bin /usr/bin
+- sudo cp -Trv VulkanSDK/1.0.30.0/x86_64/etc /etc
+- wget https://github.com/glfw/glfw/releases/download/3.2.1/glfw-3.2.1.zip && unzip glfw-3.2.1.zip && cd glfw-3.2.1 && cmake . && sudo make all install && cd ..
+script: make clean all
