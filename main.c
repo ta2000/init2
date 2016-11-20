@@ -1,11 +1,15 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+// From VulkanSDK examples
+#include "linmath.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
+#include <math.h>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -44,6 +48,13 @@ VkVertexInputAttributeDescription* getAttributeDescriptions()
 
     return descriptions;
 }
+
+struct UniformBufferObject
+{
+    mat4x4 model;
+    mat4x4 view;
+    mat4x4 proj;
+};
 
 struct QueueFamilyIndices
 {
@@ -121,6 +132,17 @@ struct Engine
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
+
+    // Uniform buffer
+    VkBuffer uniformStagingBuffer;
+    VkDeviceMemory uniformStagingBufferMemory;
+    VkBuffer uniformBuffer;
+    VkDeviceMemory uniformBufferMemory;
+
+    // Descriptor pool/set
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkDescriptorSet descriptorSet;
+    VkDescriptorPool descriptorPool;
 
     // Command buffers
     VkCommandBuffer* commandBuffers;
@@ -249,10 +271,28 @@ uint32_t findMemType(
     VkMemoryPropertyFlags properties
 );
 
+// DESCRIPTOR LAYOUT
+void createDescriptorSetLayout(struct Engine* engine);
+void destroyDescriptorSetLayout(struct Engine* engine);
+
 // INDEX BUFFER
 void createIndexBuffer(struct Engine* engine);
 void destroyIndexBuffer(struct Engine* engine);
 void freeIndexBufferMemory(struct Engine* engine);
+
+// UNIFORM BUFFER
+void createUniformBuffer(struct Engine* engine);
+void updateUniformBuffer(struct Engine* engine);
+void freeUniformBufferMemory(struct Engine* engine);
+void destroyUniformBuffer(struct Engine* engine);
+
+// DESCRIPTOR POOL
+void createDescriptorPool(struct Engine* engine);
+void destroyDescriptorPool(struct Engine* engine);
+
+// DESCRIPTOR SET
+void createDescriptorSet(struct Engine* engine);
+// Automatically freed when pool is destroyed
 
 // COMMAND BUFFERS
 void createCommandBuffers(struct Engine* engine);
@@ -310,6 +350,8 @@ void EngineRun(struct Engine* self)
     // GLFW main loop
     while(!glfwWindowShouldClose(self->window)) {
         glfwPollEvents();
+
+        updateUniformBuffer(self);
         drawFrame(self);
     }
 
@@ -319,6 +361,9 @@ void EngineDestroy(struct Engine* self)
 {
     destroySemaphores(self);
     freeCommandBuffers(self);
+    destroyDescriptorPool(self);
+    freeUniformBufferMemory(self);
+    destroyUniformBuffer(self);
     freeIndexBufferMemory(self);
     destroyIndexBuffer(self);
     freeVertexBufferMemory(self);
@@ -326,6 +371,7 @@ void EngineDestroy(struct Engine* self)
     destroyCommandPool(self);
     destroyFramebuffers(self);
     freeExtensions(self);
+    destroyDescriptorSetLayout(self);
     destroyGraphicsPipeline(self);
     destroyRenderPass(self);
     destroyImageViews(self);
@@ -383,11 +429,15 @@ int main() {
     createSwapChain(engine);
     createImageViews(engine);
     createRenderPass(engine);
+    createDescriptorSetLayout(engine);
     createGraphicsPipeline(engine);
     createFramebuffers(engine);
     createCommandPool(engine);
     createVertexBuffer(engine);
     createIndexBuffer(engine);
+    createUniformBuffer(engine);
+    createDescriptorPool(engine);
+    createDescriptorSet(engine);
     createCommandBuffers(engine);
     createSemaphores(engine);
 
@@ -1252,6 +1302,46 @@ void destroyRenderPass(struct Engine* engine)
     vkDestroyRenderPass(engine->device, engine->renderPass, NULL);
 }
 
+// DESCRIPTOR LAYOUT
+void createDescriptorSetLayout(struct Engine* engine)
+{
+    VkDescriptorSetLayoutBinding uboLayoutBinding;
+    uboLayoutBinding.binding = 0;
+    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboLayoutBinding.descriptorCount = 1;
+    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    uboLayoutBinding.pImmutableSamplers = NULL;
+
+    VkDescriptorSetLayoutCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+    createInfo.bindingCount = 1;
+    createInfo.pBindings = &uboLayoutBinding;
+
+    VkResult result;
+    result = vkCreateDescriptorSetLayout(
+        engine->device,
+        &createInfo,
+        NULL,
+        &(engine->descriptorSetLayout)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create descriptor set layout.\n");
+        exit(-1);
+    }
+}
+
+void destroyDescriptorSetLayout(struct Engine* engine)
+{
+    vkDestroyDescriptorSetLayout(
+        engine->device,
+        engine->descriptorSetLayout,
+        NULL
+    );
+}
+
 // GRAPHICS PIPELINE
 void createGraphicsPipeline(struct Engine* engine)
 {
@@ -1350,7 +1440,7 @@ void createGraphicsPipeline(struct Engine* engine)
         VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizationInfo.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizationInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizationInfo.depthClampEnable = VK_FALSE;
     rasterizationInfo.rasterizerDiscardEnable = VK_FALSE;
     rasterizationInfo.depthBiasEnable = VK_FALSE;
@@ -1393,10 +1483,22 @@ void createGraphicsPipeline(struct Engine* engine)
     memset(&pipelineLayoutInfo, 0, sizeof(pipelineLayoutInfo));
     pipelineLayoutInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 0;
-    pipelineLayoutInfo.pSetLayouts = NULL;
+    VkDescriptorSetLayout setLayouts[] = {engine->descriptorSetLayout};
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = setLayouts;
     pipelineLayoutInfo.pushConstantRangeCount = 0;
     pipelineLayoutInfo.pPushConstantRanges = NULL;
+
+    if (vkCreatePipelineLayout(
+            engine->device,
+            &pipelineLayoutInfo,
+            NULL,
+            &(engine->pipelineLayout)
+    ) != VK_SUCCESS )
+    {
+        fprintf(stderr, "Failed to create pipeline layout.\n");
+        exit(-1);
+    }
 
     memset(&colorBlendAttachment, 0, sizeof(colorBlendAttachment));
     colorBlendAttachment.colorWriteMask =
@@ -1423,17 +1525,6 @@ void createGraphicsPipeline(struct Engine* engine)
     colorBlendInfo.blendConstants[1] = 0.0f;
     colorBlendInfo.blendConstants[2] = 0.0f;
     colorBlendInfo.blendConstants[3] = 0.0f;
-
-    if (vkCreatePipelineLayout(
-            engine->device,
-            &pipelineLayoutInfo,
-            NULL,
-            &(engine->pipelineLayout)
-    ) != VK_SUCCESS )
-    {
-        fprintf(stderr, "Failed to create pipeline layout.\n");
-        exit(-1);
-    }
 
     pipelineInfo.stageCount = 2;
     pipelineInfo.pStages = shaderStageInfos;
@@ -1841,6 +1932,173 @@ void freeIndexBufferMemory(struct Engine* engine)
     vkFreeMemory(engine->device, engine->indexBufferMemory, NULL);
 }
 
+// UNIFORM BUFFER
+void createUniformBuffer(struct Engine* engine)
+{
+    VkDeviceSize bufferSize = sizeof(struct UniformBufferObject);
+
+    createBuffer(
+        engine,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &(engine->uniformStagingBuffer),
+        &(engine->uniformStagingBufferMemory)
+    );
+
+    createBuffer(
+        engine,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        &(engine->uniformBuffer),
+        &(engine->uniformBufferMemory)
+    );
+}
+
+void updateUniformBuffer(struct Engine* engine)
+{
+    struct UniformBufferObject ubo;
+    memset(&ubo, 0, sizeof(ubo));
+
+    mat4x4 empty;
+    memset(&empty, 0, sizeof(empty));
+    mat4x4_identity(empty);
+
+    mat4x4_identity(ubo.model);
+    mat4x4_rotate(
+        ubo.model, empty,
+        0.0f, 0.0f, 1.0f,
+        (float)degreesToRadians(22.5)
+    );
+
+    vec3 eye = {2.0f, 2.0f, 2.0f};
+    vec3 center = {0.0f, 0.0f, 0.0f};
+    vec3 up = {0.0f, 0.0f, 1.0f};
+    mat4x4_look_at(ubo.view, eye, center, up);
+
+    mat4x4_perspective(
+        ubo.proj,
+        (float)degreesToRadians(45.0f),
+        engine->swapChainExtent.width/(float)engine->swapChainExtent.height,
+        0.1f,
+        100.0f
+    );
+
+    ubo.proj[1][1] *= -1;
+
+    void* data;
+    vkMapMemory(
+        engine->device,
+        engine->uniformStagingBufferMemory,
+        0,
+        sizeof(ubo),
+        0,
+        &data
+    );
+    memcpy(data, &ubo, sizeof(ubo));
+    vkUnmapMemory(engine->device, engine->uniformStagingBufferMemory);
+
+    copyBuffer(
+        engine,
+        &(engine->uniformStagingBuffer),
+        &(engine->uniformBuffer),
+        sizeof(ubo)
+    );
+}
+
+void destroyUniformBuffer(struct Engine* engine)
+{
+    vkDestroyBuffer(engine->device, engine->uniformStagingBuffer, NULL);
+    vkDestroyBuffer(engine->device, engine->uniformBuffer, NULL);
+}
+
+void freeUniformBufferMemory(struct Engine* engine)
+{
+    vkFreeMemory(engine->device, engine->uniformStagingBufferMemory, NULL);
+    vkFreeMemory(engine->device, engine->uniformBufferMemory, NULL);
+}
+
+// DESCRIPTOR POOL
+void createDescriptorPool(struct Engine* engine)
+{
+    VkDescriptorPoolSize poolSize;
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+    createInfo.maxSets = 1;
+    createInfo.poolSizeCount = 1;
+    createInfo.pPoolSizes = &poolSize;
+
+    VkResult result;
+    result = vkCreateDescriptorPool(
+        engine->device,
+        &createInfo,
+        NULL,
+        &(engine->descriptorPool)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create descriptor pool.\n");
+        exit(-1);
+    }
+}
+
+void destroyDescriptorPool(struct Engine* engine)
+{
+    vkDestroyDescriptorPool(engine->device, engine->descriptorPool, NULL);
+}
+
+// DESCRIPTOR SET
+void createDescriptorSet(struct Engine* engine)
+{
+    VkDescriptorSetLayout layouts[] = {engine->descriptorSetLayout};
+
+    VkDescriptorSetAllocateInfo allocInfo;
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.pNext = NULL;
+    allocInfo.descriptorPool = engine->descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = layouts;
+
+    VkResult result;
+    result = vkAllocateDescriptorSets(
+        engine->device,
+        &allocInfo,
+        &(engine->descriptorSet)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to allocate descriptor sets.\n");
+        exit(-1);
+    }
+
+    VkDescriptorBufferInfo bufferInfo;
+    bufferInfo.buffer = engine->uniformBuffer;
+    bufferInfo.offset = 0;
+    bufferInfo.range = sizeof(struct UniformBufferObject);
+
+    VkWriteDescriptorSet descriptorWrite;
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.pNext = NULL;
+    descriptorWrite.dstSet = engine->descriptorSet;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstArrayElement = 0;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrite.pImageInfo = NULL;
+    descriptorWrite.pBufferInfo = &bufferInfo;
+    descriptorWrite.pTexelBufferView = NULL;
+
+    vkUpdateDescriptorSets(engine->device, 1, &descriptorWrite, 0, NULL);
+}
+
 // COMMAND BUFFERS
 void createCommandBuffers(struct Engine* engine)
 {
@@ -1921,6 +2179,17 @@ void createCommandBuffers(struct Engine* engine)
             engine->indexBuffer,
             0,
             VK_INDEX_TYPE_UINT16
+        );
+
+        vkCmdBindDescriptorSets(
+            engine->commandBuffers[i],
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            engine->pipelineLayout,
+            0,
+            1,
+            &(engine->descriptorSet),
+            0,
+            NULL
         );
 
         vkCmdDrawIndexed(
