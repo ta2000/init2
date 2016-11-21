@@ -150,6 +150,17 @@ struct Engine
     // Semaphores
     VkSemaphore imageAvailable;
     VkSemaphore renderFinished;
+
+    // Position
+    float x;
+    float y;
+    float z;
+    _Bool dirX;
+    _Bool dirY;
+    _Bool dirZ;
+
+    // Rotation
+    float rotation;
 };
 
 /*  -----------------------------
@@ -311,6 +322,14 @@ void recreateSwapChain(struct Engine* engine);
  *  -----------------------------   */
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
+    self->x = 0.0f;
+    self->y = 0.0f;
+    self->z = 0.0f;
+    self->dirX = 0;
+    self->dirY = 0;
+    self->dirZ = 0;
+    self->rotation = 0.0f;
+
     self->instance = VK_NULL_HANDLE;
     self->physicalDevice = VK_NULL_HANDLE;
     self->device = VK_NULL_HANDLE;
@@ -350,6 +369,23 @@ void EngineRun(struct Engine* self)
     // GLFW main loop
     while(!glfwWindowShouldClose(self->window)) {
         glfwPollEvents();
+
+        if (self->dirX == 0)
+        {
+            self->x -= 0.002f;
+            if (self->x < -1.0f)
+                self->dirX = 1;
+        }
+        else
+        {
+            self->x += 0.002f;
+            if (self->x > 1.0f)
+                self->dirX = 0;
+        }
+
+        self->rotation += 0.05f;
+        if (self->rotation > 360.0f)
+            self->rotation = 0.0f;
 
         updateUniformBuffer(self);
         drawFrame(self);
@@ -1968,11 +2004,21 @@ void updateUniformBuffer(struct Engine* engine)
     mat4x4_identity(empty);
 
     mat4x4_identity(ubo.model);
+
+    mat4x4 translated;
+    mat4x4_identity(translated);
+    mat4x4 rotated;
+    mat4x4_identity(rotated);
+
+    mat4x4_translate(translated, engine->x, engine->y, engine->z);
+
     mat4x4_rotate(
-        ubo.model, empty,
+        rotated, empty,
         0.0f, 0.0f, 1.0f,
-        (float)degreesToRadians(22.5)
+        (float)degreesToRadians(engine->rotation)
     );
+
+    mat4x4_mul(ubo.model, translated, rotated);
 
     vec3 eye = {2.0f, 2.0f, 2.0f};
     vec3 center = {0.0f, 0.0f, 0.0f};
