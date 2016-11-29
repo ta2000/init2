@@ -4,6 +4,9 @@
 // From VulkanSDK examples
 #include "linmath.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +22,7 @@ struct Vertex
 {
     float position[2];
     float color[3];
+    float texCoord[2];
 };
 VkVertexInputBindingDescription getBindingDescription()
 {
@@ -32,7 +36,7 @@ VkVertexInputBindingDescription getBindingDescription()
 VkVertexInputAttributeDescription* getAttributeDescriptions()
 {
     VkVertexInputAttributeDescription* descriptions;
-    descriptions = calloc(2, sizeof(VkVertexInputAttributeDescription));
+    descriptions = calloc(3, sizeof(VkVertexInputAttributeDescription));
 
     // Position
     descriptions[0].location = 0;
@@ -45,6 +49,12 @@ VkVertexInputAttributeDescription* getAttributeDescriptions()
     descriptions[1].binding = 0;
     descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
     descriptions[1].offset = offsetof(struct Vertex, color);
+
+    // Texture
+    descriptions[2].location = 2;
+    descriptions[2].binding = 0;
+    descriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    descriptions[2].offset = offsetof(struct Vertex, texCoord);
 
     return descriptions;
 }
@@ -122,6 +132,14 @@ struct Engine
 
     // Command pool
     VkCommandPool commandPool;
+
+    // Texture image
+    VkImage textureImage;
+    VkDeviceMemory textureImageMemory;
+    VkImageView textureImageView;
+
+    // Sampler
+    VkSampler textureSampler;
 
     // Vertex buffer
     uint32_t vertexCount;
@@ -247,6 +265,49 @@ void destroyFramebuffers(struct Engine* engine);
 void createCommandPool(struct Engine* engine);
 void destroyCommandPool(struct Engine* engine);
 
+// TEXTURE IMAGE
+void createTextureImage(struct Engine* engine);
+void destroyTextureImage(struct Engine* engine);
+void createImage(
+    struct Engine* engine,
+    VkFormat format,
+    uint32_t texWidth,
+    uint32_t texHeight,
+    VkImageTiling tiling,
+    VkImageUsageFlags usage,
+    VkMemoryPropertyFlags propertyFlags,
+    VkImage* stagingImage,
+    VkDeviceMemory* stagingImageMemory
+);
+void transitionImageLayout(
+    struct Engine* engine,
+    VkImage image,
+    VkFormat format,
+    VkImageLayout oldLayout,
+    VkImageLayout newLayout
+);
+void copyImage(
+    struct Engine* engine,
+    VkImage src,
+    VkImage dst,
+    uint32_t width,
+    uint32_t height
+);
+
+// TEXTURE IMAGE VIEW
+void createTextureImageView(struct Engine* engine);
+void destroyTextureImageView(struct Engine* engine);
+void createImageView(
+    struct Engine* engine,
+    VkImage image,
+    VkFormat format,
+    VkImageView* imageView
+);
+
+// TEXTURE SAMPLER
+void createTextureSampler(struct Engine* engine);
+void destroyTextureSampler(struct Engine* engine);
+
 // VERTEX BUFFER
 void createVertexBuffer(struct Engine* engine);
 void copyBuffer(
@@ -254,6 +315,11 @@ void copyBuffer(
     VkBuffer* src,
     VkBuffer* dst,
     VkDeviceSize size
+);
+VkCommandBuffer beginSingleTimeCommands(struct Engine* engine);
+void endSingleTimeCommands(
+    struct Engine* engine,
+    VkCommandBuffer commandBuffer
 );
 void createBuffer(
     struct Engine* engine,
@@ -321,10 +387,10 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     self->framebuffers = NULL;
 
     struct Vertex vertices[] = {
-        {{-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{0.5f, -0.5f }, {0.0f, 1.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},
-        {{-0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}}
+        { {-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} },
+        { {0.5f, -0.5f }, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
+        { {0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f} },
+        { {-0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} }
     };
     self->vertexCount = sizeof(vertices)/sizeof(vertices[0]);
     self->vertices = malloc(sizeof(vertices));
@@ -368,6 +434,9 @@ void EngineDestroy(struct Engine* self)
     destroyIndexBuffer(self);
     freeVertexBufferMemory(self);
     destroyVertexBuffer(self);
+    destroyTextureSampler(self);
+    destroyTextureImageView(self);
+    destroyTextureImage(self);
     destroyCommandPool(self);
     destroyFramebuffers(self);
     freeExtensions(self);
@@ -433,6 +502,9 @@ int main() {
     createGraphicsPipeline(engine);
     createFramebuffers(engine);
     createCommandPool(engine);
+    createTextureImage(engine);
+    createTextureImageView(engine);
+    createTextureSampler(engine);
     createVertexBuffer(engine);
     createIndexBuffer(engine);
     createUniformBuffer(engine);
@@ -1188,35 +1260,12 @@ void createImageViews(struct Engine* engine)
     uint32_t i;
     for (i=0; i<engine->imageCount; i++)
     {
-        VkImageViewCreateInfo createInfo;
-        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        createInfo.pNext = NULL;
-        createInfo.flags = 0;
-        createInfo.image = engine->swapChainImages[i];
-        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        createInfo.format = engine->swapChainImageFormat;
-        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        createInfo.subresourceRange.baseMipLevel = 0;
-        createInfo.subresourceRange.levelCount = 1;
-        createInfo.subresourceRange.baseArrayLayer = 0;
-        createInfo.subresourceRange.layerCount = 1;
-
-        VkResult result;
-        result = vkCreateImageView(
-            engine->device,
-            &createInfo,
-            NULL,
+        createImageView(
+            engine,
+            engine->swapChainImages[i],
+            engine->swapChainImageFormat,
             &(engine->imageViews[i])
         );
-        if (result != VK_SUCCESS)
-        {
-            fprintf(stderr, "Failed to create image view %d.\n", i);
-            exit(-1);
-        }
     }
 }
 
@@ -1312,12 +1361,25 @@ void createDescriptorSetLayout(struct Engine* engine)
     uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     uboLayoutBinding.pImmutableSamplers = NULL;
 
+    VkDescriptorSetLayoutBinding samplerLayoutBinding;
+    samplerLayoutBinding.binding = 1;
+    samplerLayoutBinding.descriptorType =
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerLayoutBinding.descriptorCount = 1;
+    samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    samplerLayoutBinding.pImmutableSamplers = NULL;
+
+    VkDescriptorSetLayoutBinding layoutBindings[2] = {
+        uboLayoutBinding,
+        samplerLayoutBinding
+    };
+
     VkDescriptorSetLayoutCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     createInfo.pNext = NULL;
     createInfo.flags = 0;
-    createInfo.bindingCount = 1;
-    createInfo.pBindings = &uboLayoutBinding;
+    createInfo.bindingCount = 2;
+    createInfo.pBindings = layoutBindings;
 
     VkResult result;
     result = vkCreateDescriptorSetLayout(
@@ -1426,7 +1488,7 @@ void createGraphicsPipeline(struct Engine* engine)
     VkVertexInputAttributeDescription* attribute = getAttributeDescriptions();
     vertInputInfo.vertexBindingDescriptionCount = 1;
     vertInputInfo.pVertexBindingDescriptions = &binding;
-    vertInputInfo.vertexAttributeDescriptionCount = 2;
+    vertInputInfo.vertexAttributeDescriptionCount = 3;
     vertInputInfo.pVertexAttributeDescriptions = attribute;
 
     memset(&inputAssemblyInfo, 0, sizeof(inputAssemblyInfo));
@@ -1692,6 +1754,364 @@ void destroyCommandPool(struct Engine* engine)
     vkDestroyCommandPool(engine->device, engine->commandPool, NULL);
 }
 
+// TEXTURE IMAGE
+void createTextureImage(struct Engine* engine)
+{
+    char* imageSrc = "textures/dog.jpeg";
+    int texWidth, texHeight, texChannels;
+    stbi_uc* pixels = stbi_load(
+        imageSrc,
+        &texWidth,
+        &texHeight,
+        &texChannels,
+        STBI_rgb_alpha
+    );
+    VkDeviceSize imageSize = texWidth * texHeight * 4;
+
+    if (!pixels)
+    {
+        fprintf(stderr, "stb_image failed to load resource %s\n", imageSrc);
+        exit(-1);
+    }
+
+    VkImage stagingImage;
+    VkDeviceMemory stagingImageMemory;
+
+    createImage(
+        engine,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        texWidth,
+        texHeight,
+        VK_IMAGE_TILING_LINEAR,
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &stagingImage,
+        &stagingImageMemory
+    );
+
+    void* data;
+    vkMapMemory(engine->device, stagingImageMemory, 0, imageSize, 0, &data);
+    memcpy(data, pixels, (size_t)imageSize);
+    vkUnmapMemory(engine->device, stagingImageMemory);
+
+    stbi_image_free(pixels);
+
+    createImage(
+        engine,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        texWidth,
+        texHeight,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        &(engine->textureImage),
+        &(engine->textureImageMemory)
+    );
+
+    transitionImageLayout(
+        engine,
+        stagingImage,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_LAYOUT_PREINITIALIZED,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+    );
+    transitionImageLayout(
+        engine,
+        engine->textureImage,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_LAYOUT_PREINITIALIZED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    );
+    copyImage(engine, stagingImage, engine->textureImage, texWidth, texHeight);
+
+    transitionImageLayout(
+        engine,
+        engine->textureImage,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    );
+
+    vkDestroyImage(
+        engine->device,
+        stagingImage,
+        NULL
+    );
+
+    vkFreeMemory(
+        engine->device,
+        stagingImageMemory,
+        NULL
+    );
+}
+
+void destroyTextureImage(struct Engine* engine)
+{
+    vkDestroyImage(
+        engine->device,
+        engine->textureImage,
+        NULL
+    );
+
+    vkFreeMemory(
+        engine->device,
+        engine->textureImageMemory,
+        NULL
+    );
+}
+
+void createImage(struct Engine* engine, VkFormat format, uint32_t texWidth, uint32_t texHeight, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags propertyFlags, VkImage* stagingImage, VkDeviceMemory* stagingImageMemory)
+{
+    VkImageCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+    createInfo.imageType = VK_IMAGE_TYPE_2D;
+    createInfo.format = format;
+    createInfo.extent.width = texWidth;
+    createInfo.extent.height = texHeight;
+    createInfo.extent.depth = 1;
+    createInfo.mipLevels = 1;
+    createInfo.arrayLayers = 1;
+    createInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    createInfo.tiling = tiling;
+    createInfo.usage = usage;
+    createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    createInfo.queueFamilyIndexCount = 0;
+    createInfo.pQueueFamilyIndices = NULL;
+    createInfo.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+    VkResult result;
+    result = vkCreateImage(
+        engine->device,
+        &createInfo,
+        NULL,
+        stagingImage
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create texture image.\n");
+        exit(-1);
+    }
+
+    VkMemoryRequirements memRequirements;
+    vkGetImageMemoryRequirements(
+        engine->device,
+        *stagingImage,
+        &memRequirements
+    );
+
+    VkMemoryAllocateInfo allocInfo;
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.pNext = NULL;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemType(
+        engine,
+        memRequirements.memoryTypeBits,
+        propertyFlags
+    );
+
+    result = vkAllocateMemory(
+        engine->device,
+        &allocInfo,
+        NULL,
+        stagingImageMemory
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to allocate texture image memory.\n");
+        exit(-1);
+    }
+
+    vkBindImageMemory(engine->device, *stagingImage, *stagingImageMemory, 0);
+}
+
+void transitionImageLayout(struct Engine* engine, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+{
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands(engine);
+
+    VkImageMemoryBarrier barrier;
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+
+    if (oldLayout == VK_IMAGE_LAYOUT_PREINITIALIZED &&
+        newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    }
+    else if (oldLayout == VK_IMAGE_LAYOUT_PREINITIALIZED &&
+             newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    }
+    else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    }
+    else
+    {
+        fprintf(stderr, "Unsupported layout transition.\n");
+        exit(-1);
+    }
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        0,
+        0,
+        NULL,
+        0,
+        NULL,
+        1,
+        &barrier
+    );
+
+    endSingleTimeCommands(engine, commandBuffer);
+}
+
+void copyImage(struct Engine* engine, VkImage src, VkImage dst, uint32_t width, uint32_t height)
+{
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands(engine);
+
+    VkImageSubresourceLayers subresource;
+    subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresource.baseArrayLayer = 0;
+    subresource.mipLevel = 0;
+    subresource.layerCount = 1;
+
+    VkImageCopy region;
+    region.srcSubresource = subresource;
+    region.srcOffset = (VkOffset3D){0, 0, 0};
+    region.dstSubresource = subresource;
+    region.dstOffset = (VkOffset3D){0, 0, 0};
+    region.extent.width = width;
+    region.extent.height = height;
+    region.extent.depth = 1;
+
+    vkCmdCopyImage(
+        commandBuffer,
+        src,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        dst,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &region
+    );
+
+    endSingleTimeCommands(engine, commandBuffer);
+}
+
+// TEXTURE IMAGE VIEW
+void createTextureImageView(struct Engine* engine)
+{
+    createImageView(
+        engine,
+        engine->textureImage,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        &(engine->textureImageView)
+    );
+}
+
+void destroyTextureImageView(struct Engine* engine)
+{
+    vkDestroyImageView(engine->device, engine->textureImageView, NULL);
+}
+
+void createImageView(struct Engine* engine, VkImage image, VkFormat format, VkImageView* imageView)
+{
+    VkImageViewCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+    createInfo.image = image;
+    createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    createInfo.format = format;
+    createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    createInfo.subresourceRange.baseMipLevel = 0;
+    createInfo.subresourceRange.levelCount = 1;
+    createInfo.subresourceRange.baseArrayLayer = 0;
+    createInfo.subresourceRange.layerCount = 1;
+
+    VkResult result;
+    result = vkCreateImageView(
+        engine->device,
+        &createInfo,
+        NULL,
+        imageView
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create image view for texture.\n");
+        exit(-1);
+    }
+}
+
+// TEXTURE SAMPLER
+void createTextureSampler(struct Engine* engine)
+{
+    VkSamplerCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+    createInfo.magFilter = VK_FILTER_LINEAR;
+    createInfo.minFilter = VK_FILTER_LINEAR;
+    createInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    createInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    createInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    createInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    createInfo.mipLodBias =0.0f;
+    createInfo.anisotropyEnable = VK_TRUE;
+    createInfo.maxAnisotropy = 16;
+    createInfo.compareEnable = VK_FALSE;
+    createInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+    createInfo.minLod = 0.0f;
+    createInfo.maxLod = 0.0f;
+    createInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    createInfo.unnormalizedCoordinates = VK_FALSE;
+
+    VkResult result;
+    result = vkCreateSampler(
+        engine->device,
+        &createInfo,
+        NULL,
+        &(engine->textureSampler)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create texture sampler.\n");
+        exit(-1);
+    }
+}
+
+void destroyTextureSampler(struct Engine* engine)
+{
+    vkDestroySampler(
+        engine->device,
+        engine->textureSampler,
+        NULL
+    );
+}
+
 // VERTEX BUFFER
 void createVertexBuffer(struct Engine* engine)
 {
@@ -1743,6 +2163,19 @@ void createVertexBuffer(struct Engine* engine)
 
 void copyBuffer(struct Engine* engine, VkBuffer* src, VkBuffer* dst, VkDeviceSize size)
 {
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands(engine);
+
+    VkBufferCopy copyRegion;
+    copyRegion.srcOffset = 0;
+    copyRegion.dstOffset = 0;
+    copyRegion.size = size;
+    vkCmdCopyBuffer(commandBuffer, *src, *dst, 1, &copyRegion);
+
+    endSingleTimeCommands(engine, commandBuffer);
+}
+
+VkCommandBuffer beginSingleTimeCommands(struct Engine* engine)
+{
     VkCommandBufferAllocateInfo allocInfo;
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.pNext = NULL;
@@ -1761,12 +2194,11 @@ void copyBuffer(struct Engine* engine, VkBuffer* src, VkBuffer* dst, VkDeviceSiz
 
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-    VkBufferCopy copyRegion;
-    copyRegion.srcOffset = 0;
-    copyRegion.dstOffset = 0;
-    copyRegion.size = size;
-    vkCmdCopyBuffer(commandBuffer, *src, *dst, 1, &copyRegion);
+    return commandBuffer;
+}
 
+void endSingleTimeCommands(struct Engine* engine, VkCommandBuffer commandBuffer)
+{
     vkEndCommandBuffer(commandBuffer);
 
     VkSubmitInfo submitInfo;
@@ -2024,17 +2456,19 @@ void freeUniformBufferMemory(struct Engine* engine)
 // DESCRIPTOR POOL
 void createDescriptorPool(struct Engine* engine)
 {
-    VkDescriptorPoolSize poolSize;
-    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = 1;
+    VkDescriptorPoolSize poolSizes[2];
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     createInfo.pNext = NULL;
     createInfo.flags = 0;
     createInfo.maxSets = 1;
-    createInfo.poolSizeCount = 1;
-    createInfo.pPoolSizes = &poolSize;
+    createInfo.poolSizeCount = 2;
+    createInfo.pPoolSizes = poolSizes;
 
     VkResult result;
     result = vkCreateDescriptorPool(
@@ -2084,19 +2518,37 @@ void createDescriptorSet(struct Engine* engine)
     bufferInfo.offset = 0;
     bufferInfo.range = sizeof(struct UniformBufferObject);
 
-    VkWriteDescriptorSet descriptorWrite;
-    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrite.pNext = NULL;
-    descriptorWrite.dstSet = engine->descriptorSet;
-    descriptorWrite.dstBinding = 0;
-    descriptorWrite.dstArrayElement = 0;
-    descriptorWrite.descriptorCount = 1;
-    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptorWrite.pImageInfo = NULL;
-    descriptorWrite.pBufferInfo = &bufferInfo;
-    descriptorWrite.pTexelBufferView = NULL;
+	VkDescriptorImageInfo imageInfo;
+    imageInfo.sampler = engine->textureSampler;
+    imageInfo.imageView = engine->textureImageView;
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    vkUpdateDescriptorSets(engine->device, 1, &descriptorWrite, 0, NULL);
+    VkWriteDescriptorSet descriptorWrites[2];
+    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[0].pNext = NULL;
+    descriptorWrites[0].dstSet = engine->descriptorSet;
+    descriptorWrites[0].dstBinding = 0;
+    descriptorWrites[0].dstArrayElement = 0;
+    descriptorWrites[0].descriptorCount = 1;
+    descriptorWrites[0].descriptorType =
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrites[0].pImageInfo = NULL;
+    descriptorWrites[0].pBufferInfo = &bufferInfo;
+    descriptorWrites[0].pTexelBufferView = NULL;
+
+    descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[1].pNext = NULL;
+    descriptorWrites[1].dstSet = engine->descriptorSet;
+    descriptorWrites[1].dstBinding = 1;
+    descriptorWrites[1].dstArrayElement = 0;
+    descriptorWrites[1].descriptorCount = 1;
+    descriptorWrites[1].descriptorType =
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[1].pImageInfo = &imageInfo;
+    descriptorWrites[1].pBufferInfo = NULL;
+    descriptorWrites[1].pTexelBufferView = NULL;
+
+    vkUpdateDescriptorSets(engine->device, 2, descriptorWrites, 0, NULL);
 }
 
 // COMMAND BUFFERS
