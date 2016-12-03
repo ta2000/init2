@@ -399,15 +399,6 @@ void recreateSwapChain(struct Engine* engine);
  *  -----------------------------   */
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
-    self->instance = VK_NULL_HANDLE;
-    self->physicalDevice = VK_NULL_HANDLE;
-    self->device = VK_NULL_HANDLE;
-
-    self->surfaceExtensionCount = 0;
-    self->deviceExtensionCount = 0;
-
-    self->framebuffers = NULL;
-
     struct Vertex vertices[] = {
 		{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
 		{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
@@ -431,13 +422,32 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     self->indices = malloc(sizeof(indices));
     memcpy(self->indices, indices, sizeof(indices));
 
-    self->commandBuffers = NULL;
-
-    self->swapChainImages = NULL;
-    self->imageViews = NULL;
-    self->imageCount = 0;
-
     self->window = window;
+
+    createInstance(self);
+    setupDebugCallback(self);
+    createSurface(self);
+    getPhysicalDevice(self);
+    createLogicalDevice(self);
+    createSwapChain(self);
+    createImageViews(self);
+    findDepthFormat(self);
+    createRenderPass(self);
+    createDescriptorSetLayout(self);
+    createGraphicsPipeline(self);
+    createCommandPool(self);
+    createDepthResources(self);
+    createFramebuffers(self);
+    createTextureImage(self);
+    createTextureImageView(self);
+    createTextureSampler(self);
+    createVertexBuffer(self);
+    createIndexBuffer(self);
+    createUniformBuffer(self);
+    createDescriptorPool(self);
+    createDescriptorSet(self);
+    createCommandBuffers(self);
+    createSemaphores(self);
 }
 void EngineRun(struct Engine* self)
 {
@@ -503,8 +513,6 @@ static void onWindowResized(GLFWwindow* window, int width, int height)
 }
 
 int main() {
-    struct Engine* engine = calloc(1, sizeof(*engine));
-
     // Init GLFW
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -514,43 +522,18 @@ int main() {
         NULL,
         NULL
     );
+
+    struct Engine* engine = calloc(1, sizeof(*engine));
     glfwSetWindowUserPointer(window, engine);
     glfwSetWindowSizeCallback(window, onWindowResized);
 
     EngineInit(engine, window);
-
-    createInstance(engine);
-    setupDebugCallback(engine);
-    createSurface(engine);
-    getPhysicalDevice(engine);
-    createLogicalDevice(engine);
-    createSwapChain(engine);
-    createImageViews(engine);
-    findDepthFormat(engine);
-    createRenderPass(engine);
-    createDescriptorSetLayout(engine);
-    createGraphicsPipeline(engine);
-    createCommandPool(engine);
-    createDepthResources(engine);
-    createFramebuffers(engine);
-    createTextureImage(engine);
-    createTextureImageView(engine);
-    createTextureSampler(engine);
-    createVertexBuffer(engine);
-    createIndexBuffer(engine);
-    createUniformBuffer(engine);
-    createDescriptorPool(engine);
-    createDescriptorSet(engine);
-    createCommandBuffers(engine);
-    createSemaphores(engine);
-
     EngineRun(engine);
-
     EngineDestroy(engine);
+
     free(engine);
 
     glfwDestroyWindow(window);
-
     glfwTerminate();
 
     return 0;
