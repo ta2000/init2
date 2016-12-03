@@ -1874,7 +1874,7 @@ void createDepthResources(struct Engine* engine)
 
 void destroyDepthResources(struct Engine* engine)
 {
-    vkDestroyImageView(engine->device, engine->textureImageView, NULL);
+    vkDestroyImageView(engine->device, engine->depthImageView, NULL);
     vkFreeMemory(engine->device, engine->depthImageMemory, NULL);
     vkDestroyImage(engine->device, engine->depthImage, NULL);
 }
@@ -2992,6 +2992,9 @@ void recreateSwapChain(struct Engine* engine)
 
     destroyGraphicsPipeline(engine);
     createGraphicsPipeline(engine);
+
+    destroyDepthResources(engine);
+    createDepthResources(engine);
 
     destroyFramebuffers(engine);
     createFramebuffers(engine);
