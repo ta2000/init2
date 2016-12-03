@@ -20,7 +20,7 @@ const _Bool validationEnabled = 1;
 
 struct Vertex
 {
-    float position[2];
+    float position[3];
     float color[3];
     float texCoord[2];
 };
@@ -41,7 +41,7 @@ VkVertexInputAttributeDescription* getAttributeDescriptions()
     // Position
     descriptions[0].location = 0;
     descriptions[0].binding = 0;
-    descriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    descriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     descriptions[0].offset = offsetof(struct Vertex, position);
 
     // Color
@@ -132,6 +132,12 @@ struct Engine
 
     // Command pool
     VkCommandPool commandPool;
+
+	// Depth buffering
+    VkFormat depthFormat;
+	VkImage depthImage;
+    VkDeviceMemory depthImageMemory;
+    VkImageView depthImageView;
 
     // Texture image
     VkImage textureImage;
@@ -242,6 +248,9 @@ VkExtent2D chooseSwapExtent(
 void createImageViews(struct Engine* engine);
 void destroyImageViews(struct Engine* engine);
 
+// DEPTH FORMAT
+void findDepthFormat(struct Engine* engine);
+
 // RENDER PASS
 void createRenderPass(struct Engine* engine);
 void destroyRenderPass(struct Engine* engine);
@@ -264,6 +273,18 @@ void destroyFramebuffers(struct Engine* engine);
 // COMMAND POOL
 void createCommandPool(struct Engine* engine);
 void destroyCommandPool(struct Engine* engine);
+
+// DEPTH RESOURCES
+void createDepthResources(struct Engine* engine);
+VkFormat findSupportedFormat(
+    struct Engine* engine,
+    VkFormat* candidates,
+    uint32_t candidateCount,
+    VkImageTiling tiling,
+    VkFormatFeatureFlags features
+);
+_Bool hasStencilComponent(VkFormat format);
+void destroyDepthResources(struct Engine* engine);
 
 // TEXTURE IMAGE
 void createTextureImage(struct Engine* engine);
@@ -301,6 +322,7 @@ void createImageView(
     struct Engine* engine,
     VkImage image,
     VkFormat format,
+    VkImageAspectFlags aspectFlags,
     VkImageView* imageView
 );
 
@@ -387,17 +409,23 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     self->framebuffers = NULL;
 
     struct Vertex vertices[] = {
-        { {-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} },
-        { {0.5f, -0.5f }, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
-        { {0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f} },
-        { {-0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} }
+		{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+		{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+		{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+		{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+		{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+		{{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+		{{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+		{{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
     };
     self->vertexCount = sizeof(vertices)/sizeof(vertices[0]);
     self->vertices = malloc(sizeof(vertices));
     memcpy(self->vertices, vertices, sizeof(vertices));
 
     uint16_t indices[] = {
-        0, 1, 2, 2, 3, 0
+        0, 1, 2, 2, 3, 0,
+		4, 5, 6, 6, 7, 4
     };
     self->indexCount = sizeof(indices)/sizeof(indices[0]);
     self->indices = malloc(sizeof(indices));
@@ -437,8 +465,9 @@ void EngineDestroy(struct Engine* self)
     destroyTextureSampler(self);
     destroyTextureImageView(self);
     destroyTextureImage(self);
-    destroyCommandPool(self);
     destroyFramebuffers(self);
+    destroyDepthResources(self);
+    destroyCommandPool(self);
     freeExtensions(self);
     destroyDescriptorSetLayout(self);
     destroyGraphicsPipeline(self);
@@ -497,11 +526,13 @@ int main() {
     createLogicalDevice(engine);
     createSwapChain(engine);
     createImageViews(engine);
+    findDepthFormat(engine);
     createRenderPass(engine);
     createDescriptorSetLayout(engine);
     createGraphicsPipeline(engine);
-    createFramebuffers(engine);
     createCommandPool(engine);
+    createDepthResources(engine);
+    createFramebuffers(engine);
     createTextureImage(engine);
     createTextureImageView(engine);
     createTextureSampler(engine);
@@ -1264,6 +1295,7 @@ void createImageViews(struct Engine* engine)
             engine,
             engine->swapChainImages[i],
             engine->swapChainImageFormat,
+            VK_IMAGE_ASPECT_COLOR_BIT,
             &(engine->imageViews[i])
         );
     }
@@ -1276,6 +1308,24 @@ void destroyImageViews(struct Engine* engine)
     {
         vkDestroyImageView(engine->device, engine->imageViews[i], NULL);
     }
+}
+
+// DEPTH FORMAT
+void findDepthFormat(struct Engine* engine)
+{
+    VkFormat candidates[3] = {
+        VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D24_UNORM_S8_UINT
+    };
+
+    engine->depthFormat = findSupportedFormat(
+        engine,
+        candidates,
+        3,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+    );
 }
 
 // RENDER PASS
@@ -1296,6 +1346,28 @@ void createRenderPass(struct Engine* engine)
     colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+    VkAttachmentDescription depthAttachment;
+    depthAttachment.flags = 0;
+    depthAttachment.format = engine->depthFormat;
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout =
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depthAttachmentRef;
+    depthAttachmentRef.attachment = 1;
+    depthAttachmentRef.layout =
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentDescription attachments[] = {
+        colorAttachment,
+        depthAttachment
+    };
+
     VkSubpassDescription subpass;
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.flags = 0;
@@ -1304,7 +1376,7 @@ void createRenderPass(struct Engine* engine)
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorAttachmentRef;
     subpass.pResolveAttachments = NULL;
-    subpass.pDepthStencilAttachment = NULL;
+    subpass.pDepthStencilAttachment = &depthAttachmentRef;
     subpass.preserveAttachmentCount = 0;
     subpass.pPreserveAttachments = NULL;
 
@@ -1325,8 +1397,8 @@ void createRenderPass(struct Engine* engine)
     renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     renderPassCreateInfo.pNext = NULL;
     renderPassCreateInfo.flags = 0;
-    renderPassCreateInfo.attachmentCount = 1;
-    renderPassCreateInfo.pAttachments = &colorAttachment;
+    renderPassCreateInfo.attachmentCount = 2;
+    renderPassCreateInfo.pAttachments = attachments;
     renderPassCreateInfo.subpassCount = 1;
     renderPassCreateInfo.pSubpasses = &subpass;
     renderPassCreateInfo.dependencyCount = 1;
@@ -1440,7 +1512,7 @@ void createGraphicsPipeline(struct Engine* engine)
     VkPipelineRasterizationStateCreateInfo rasterizationInfo;
     VkPipelineColorBlendAttachmentState colorBlendAttachment;
     VkPipelineColorBlendStateCreateInfo colorBlendInfo;
-    //VkPipelineDepthStencilStateCreateInfo depthStencilInfo;
+    VkPipelineDepthStencilStateCreateInfo depthStencilInfo;
     VkPipelineViewportStateCreateInfo viewportInfo;
     VkPipelineMultisampleStateCreateInfo multisampleInfo;
     //VkDynamicState dynamicStates[2];
@@ -1588,6 +1660,17 @@ void createGraphicsPipeline(struct Engine* engine)
     colorBlendInfo.blendConstants[2] = 0.0f;
     colorBlendInfo.blendConstants[3] = 0.0f;
 
+    memset(&depthStencilInfo, 0, sizeof(depthStencilInfo));
+    depthStencilInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencilInfo.depthTestEnable = VK_TRUE;
+    depthStencilInfo.depthWriteEnable = VK_TRUE;
+    depthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencilInfo.depthBoundsTestEnable = VK_FALSE;
+    depthStencilInfo.minDepthBounds = 0.0f,
+    depthStencilInfo.maxDepthBounds = 1.0f,
+    depthStencilInfo.stencilTestEnable = VK_FALSE;
+
     pipelineInfo.stageCount = 2;
     pipelineInfo.pStages = shaderStageInfos;
     pipelineInfo.pVertexInputState = &vertInputInfo;
@@ -1596,7 +1679,7 @@ void createGraphicsPipeline(struct Engine* engine)
     pipelineInfo.pViewportState = &viewportInfo;
     pipelineInfo.pRasterizationState = &rasterizationInfo;
     pipelineInfo.pMultisampleState = &multisampleInfo;
-    pipelineInfo.pDepthStencilState = NULL;
+    pipelineInfo.pDepthStencilState = &depthStencilInfo;
     pipelineInfo.pColorBlendState = &colorBlendInfo;
     pipelineInfo.pDynamicState = NULL;
     pipelineInfo.layout = engine->pipelineLayout;
@@ -1687,14 +1770,17 @@ void createFramebuffers(struct Engine* engine)
     uint32_t i;
     for (i=0; i<engine->imageCount; i++)
     {
-        VkImageView attachments[] = { engine->imageViews[i] };
+        VkImageView attachments[] = {
+            engine->imageViews[i],
+            engine->depthImageView
+        };
 
         VkFramebufferCreateInfo createInfo;
         createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         createInfo.pNext = NULL;
         createInfo.flags = 0;
         createInfo.renderPass = engine->renderPass;
-        createInfo.attachmentCount = 1;
+        createInfo.attachmentCount = 2;
         createInfo.pAttachments = attachments;
         createInfo.width = engine->swapChainExtent.width;
         createInfo.height = engine->swapChainExtent.height;
@@ -1752,6 +1838,79 @@ void createCommandPool(struct Engine* engine)
 void destroyCommandPool(struct Engine* engine)
 {
     vkDestroyCommandPool(engine->device, engine->commandPool, NULL);
+}
+
+// DEPTH RESOURCES
+void createDepthResources(struct Engine* engine)
+{
+    createImage(
+        engine,
+        engine->depthFormat,
+        engine->swapChainExtent.width,
+        engine->swapChainExtent.height,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        &(engine->depthImage),
+        &(engine->depthImageMemory)
+    );
+
+    createImageView(
+        engine,
+        engine->depthImage,
+        engine->depthFormat,
+        VK_IMAGE_ASPECT_DEPTH_BIT,
+        &(engine->depthImageView)
+    );
+
+    transitionImageLayout(
+        engine,
+        engine->depthImage,
+        engine->depthFormat,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    );
+}
+
+void destroyDepthResources(struct Engine* engine)
+{
+    vkDestroyImageView(engine->device, engine->textureImageView, NULL);
+    vkFreeMemory(engine->device, engine->depthImageMemory, NULL);
+    vkDestroyImage(engine->device, engine->depthImage, NULL);
+}
+
+_Bool hasStencilComponent(VkFormat format)
+{
+    return format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+            format == VK_FORMAT_D24_UNORM_S8_UINT;
+}
+
+VkFormat findSupportedFormat(struct Engine* engine, VkFormat* candidates, uint32_t candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+    uint32_t i;
+    for (i=0; i<candidateCount; i++)
+    {
+        VkFormatProperties props;
+        vkGetPhysicalDeviceFormatProperties(
+            engine->physicalDevice,
+            candidates[i],
+            &props
+        );
+
+        if (tiling == VK_IMAGE_TILING_LINEAR &&
+            (props.linearTilingFeatures & features) == features)
+        {
+            return candidates[i];
+        }
+        else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
+                (props.optimalTilingFeatures & features) == features)
+        {
+            return candidates[i];
+        }
+    }
+
+    fprintf(stderr, "Failed to find supported depth format.\n");
+    exit(-1);
 }
 
 // TEXTURE IMAGE
@@ -1939,7 +2098,21 @@ void transitionImageLayout(struct Engine* engine, VkImage image, VkFormat format
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+    {
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+        if (hasStencilComponent(format))
+        {
+            barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        }
+    }
+    else
+    {
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
@@ -1962,6 +2135,13 @@ void transitionImageLayout(struct Engine* engine, VkImage image, VkFormat format
     {
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    }
+    else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     }
     else
     {
@@ -2024,6 +2204,7 @@ void createTextureImageView(struct Engine* engine)
         engine,
         engine->textureImage,
         VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_ASPECT_COLOR_BIT,
         &(engine->textureImageView)
     );
 }
@@ -2033,7 +2214,7 @@ void destroyTextureImageView(struct Engine* engine)
     vkDestroyImageView(engine->device, engine->textureImageView, NULL);
 }
 
-void createImageView(struct Engine* engine, VkImage image, VkFormat format, VkImageView* imageView)
+void createImageView(struct Engine* engine, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView* imageView)
 {
     VkImageViewCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -2046,7 +2227,7 @@ void createImageView(struct Engine* engine, VkImage image, VkFormat format, VkIm
     createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
     createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
     createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-    createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    createInfo.subresourceRange.aspectMask = aspectFlags;
     createInfo.subresourceRange.baseMipLevel = 0;
     createInfo.subresourceRange.levelCount = 1;
     createInfo.subresourceRange.baseArrayLayer = 0;
@@ -2596,12 +2777,16 @@ void createCommandBuffers(struct Engine* engine)
         renderPassInfo.renderArea.offset.y = 0;
         renderPassInfo.renderArea.extent = engine->swapChainExtent;
 
-        VkClearValue clearColor = {
-            .color.float32 = {0.0f, 0.0f, 0.0f, 1.0f}
-        };
+        VkClearValue clearValues[2];
+        clearValues[0].color.float32[0] = 0.0f;
+        clearValues[0].color.float32[1] = 0.0f;
+        clearValues[0].color.float32[2] = 0.0f;
+        clearValues[0].color.float32[3] = 1.0f;
+        clearValues[1].depthStencil.depth = 1.0f;
+        clearValues[1].depthStencil.stencil = 0;
 
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues = &clearColor;
+        renderPassInfo.clearValueCount = 2;
+        renderPassInfo.pClearValues = clearValues;
 
         vkCmdBeginRenderPass(
             engine->commandBuffers[i],
