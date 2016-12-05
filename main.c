@@ -512,6 +512,19 @@ static void onWindowResized(GLFWwindow* window, int width, int height)
     recreateSwapChain(engine);
 }
 
+static void keyCallback(
+    GLFWwindow* window,
+    int key,
+    int scancode,
+    int action,
+    int mods)
+{
+    if (key == GLFW_KEY_E && action == GLFW_PRESS)
+    {
+        printf("Pressed E key.\n");
+    }
+}
+
 int main() {
     // Init GLFW
     glfwInit();
@@ -526,6 +539,7 @@ int main() {
     struct Engine* engine = calloc(1, sizeof(*engine));
     glfwSetWindowUserPointer(window, engine);
     glfwSetWindowSizeCallback(window, onWindowResized);
+    glfwSetKeyCallback(window, keyCallback);
 
     EngineInit(engine, window);
     EngineRun(engine);
