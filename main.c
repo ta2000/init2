@@ -152,8 +152,8 @@ struct Engine
     struct Vertex* vertices;
     uint16_t* indices;
     uint32_t indexCount;
-    VkBuffer vertexBuffer;
-    VkDeviceMemory vertexBufferMemory;
+    VkBuffer* vertexBuffers;
+    VkDeviceMemory* vertexBufferMemories;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
 
@@ -170,6 +170,7 @@ struct Engine
 
     // Command buffers
     VkCommandBuffer* commandBuffers;
+    uint32_t currentBuffer;
 
     // Semaphores
     VkSemaphore imageAvailable;
@@ -357,8 +358,11 @@ void createBuffer(
     VkBuffer* buffer,
     VkDeviceMemory* bufferMemory
 );
-void destroyVertexBuffer(struct Engine* engine);
-void freeVertexBufferMemory(struct Engine* engine);
+void destroyVertexBuffer(struct Engine* engine, VkBuffer* vertexBuffer);
+void freeVertexBufferMemory(
+    struct Engine* engine,
+    VkDeviceMemory* vertexBufferMemory
+);
 uint32_t findMemType(
     struct Engine* engine,
     uint32_t typeFilter,
@@ -397,6 +401,11 @@ void createDescriptorSet(struct Engine* engine);
 // COMMAND BUFFERS
 void createCommandBuffers(struct Engine* engine);
 void freeCommandBuffers(struct Engine* engine);
+void generateDrawCommands(
+    struct Engine* engine,
+    uint32_t currentBuffer,
+    VkBuffer* vertexBuffers
+);
 
 // SEMAPHORES
 void createSemaphores(struct Engine* engine);
@@ -411,16 +420,14 @@ void recreateSwapChain(struct Engine* engine);
  *  -----------------------------   */
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
+    self->vertexBuffers = calloc(1, sizeof(VkBuffer));
+    self->vertexBufferMemories = calloc(1, sizeof(VkDeviceMemory));
+
     struct Vertex vertices[] = {
 		{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
 		{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
 		{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-		{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-
-		{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-		{{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-		{{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-		{{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
+		{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
     };
     self->vertexCount = sizeof(vertices)/sizeof(vertices[0]);
     self->vertices = malloc(sizeof(vertices));
@@ -458,8 +465,8 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
         self,
         self->vertices,
         self->vertexCount,
-        &(self->vertexBuffer),
-        &(self->vertexBufferMemory)
+        &(self->vertexBuffers[0]),
+        &(self->vertexBufferMemories[0])
     );
     createIndexBuffer(
         self,
@@ -475,14 +482,21 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     createCommandBuffers(self);
     createSemaphores(self);
 }
+void EngineUpdate(struct Engine* self)
+{
+    generateDrawCommands(self, self->currentBuffer, self->vertexBuffers);
+    updateUniformBuffer(self);
+    drawFrame(self);
+
+    self->currentBuffer++;
+    self->currentBuffer %= 3;
+}
 void EngineRun(struct Engine* self)
 {
     // GLFW main loop
     while(!glfwWindowShouldClose(self->window)) {
         glfwPollEvents();
-
-        updateUniformBuffer(self);
-        drawFrame(self);
+        EngineUpdate(self);
     }
 
     vkDeviceWaitIdle(self->device);
@@ -496,8 +510,8 @@ void EngineDestroy(struct Engine* self)
     destroyUniformBuffer(self);
     freeIndexBufferMemory(self);
     destroyIndexBuffer(self);
-    freeVertexBufferMemory(self);
-    destroyVertexBuffer(self);
+    freeVertexBufferMemory(self, &(self->vertexBufferMemories[0]));
+    destroyVertexBuffer(self, &(self->vertexBuffers[0]));
     destroyTextureSampler(self);
     destroyTextureImageView(self);
     destroyTextureImage(self);
@@ -1840,7 +1854,7 @@ void createCommandPool(struct Engine* engine)
     VkCommandPoolCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     createInfo.pNext = NULL;
-    createInfo.flags = 0; // Relates to reset frequency of command buffers
+    createInfo.flags = 2; // Relates to reset frequency of command buffers
     createInfo.queueFamilyIndex = engine->queueFamilyIndices.graphicsFamily;
 
     VkResult result;
@@ -2480,14 +2494,14 @@ void createBuffer(struct Engine* engine, VkDeviceSize size, VkBufferUsageFlags u
     );
 }
 
-void destroyVertexBuffer(struct Engine* engine)
+void destroyVertexBuffer(struct Engine* engine, VkBuffer* vertexBuffer)
 {
-    vkDestroyBuffer(engine->device, engine->vertexBuffer, NULL);
+    vkDestroyBuffer(engine->device, *vertexBuffer, NULL);
 }
 
-void freeVertexBufferMemory(struct Engine* engine)
+void freeVertexBufferMemory(struct Engine* engine, VkDeviceMemory* vertexBufferMemory)
 {
-    vkFreeMemory(engine->device, engine->vertexBufferMemory, NULL);
+    vkFreeMemory(engine->device, *vertexBufferMemory, NULL);
 }
 
 uint32_t findMemType(struct Engine* engine, uint32_t typeFilter, VkMemoryPropertyFlags properties)
@@ -2780,97 +2794,6 @@ void createCommandBuffers(struct Engine* engine)
         exit(-1);
     }
 
-    uint32_t i;
-    for (i=0; i<engine->imageCount; i++)
-    {
-        VkCommandBufferBeginInfo beginInfo;
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.pNext = NULL;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-        beginInfo.pInheritanceInfo = NULL;
-
-        vkBeginCommandBuffer(engine->commandBuffers[i], &beginInfo);
-
-        VkRenderPassBeginInfo renderPassInfo;
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.pNext = NULL;
-        renderPassInfo.renderPass = engine->renderPass;
-        renderPassInfo.framebuffer = engine->framebuffers[i];
-        renderPassInfo.renderArea.offset.x = 0;
-        renderPassInfo.renderArea.offset.y = 0;
-        renderPassInfo.renderArea.extent = engine->swapChainExtent;
-
-        VkClearValue clearValues[2];
-        clearValues[0].color.float32[0] = 0.0f;
-        clearValues[0].color.float32[1] = 0.0f;
-        clearValues[0].color.float32[2] = 0.0f;
-        clearValues[0].color.float32[3] = 1.0f;
-        clearValues[1].depthStencil.depth = 1.0f;
-        clearValues[1].depthStencil.stencil = 0;
-
-        renderPassInfo.clearValueCount = 2;
-        renderPassInfo.pClearValues = clearValues;
-
-        vkCmdBeginRenderPass(
-            engine->commandBuffers[i],
-            &renderPassInfo,
-            VK_SUBPASS_CONTENTS_INLINE
-        );
-
-        vkCmdBindPipeline(
-            engine->commandBuffers[i],
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            engine->graphicsPipeline
-        );
-
-        VkBuffer vertexBuffers[] = {engine->vertexBuffer};
-        VkDeviceSize offsets[] = {0};
-
-        vkCmdBindVertexBuffers(
-            engine->commandBuffers[i],
-            0,
-            1,
-            vertexBuffers,
-            offsets
-        );
-
-        vkCmdBindIndexBuffer(
-            engine->commandBuffers[i],
-            engine->indexBuffer,
-            0,
-            VK_INDEX_TYPE_UINT16
-        );
-
-        vkCmdBindDescriptorSets(
-            engine->commandBuffers[i],
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            engine->pipelineLayout,
-            0,
-            1,
-            &(engine->descriptorSet),
-            0,
-            NULL
-        );
-
-        vkCmdDrawIndexed(
-            engine->commandBuffers[i],
-            engine->indexCount,
-            1,
-            0,
-            0,
-            0
-        );
-
-        vkCmdEndRenderPass(engine->commandBuffers[i]);
-
-        VkResult result;
-        result = vkEndCommandBuffer(engine->commandBuffers[i]);
-        if (result != VK_SUCCESS)
-        {
-            fprintf(stderr, "Failed to record command buffers.\n");
-            exit(-1);
-        }
-    }
 }
 
 void freeCommandBuffers(struct Engine* engine)
@@ -2883,6 +2806,97 @@ void freeCommandBuffers(struct Engine* engine)
     );
 
     free(engine->commandBuffers);
+}
+
+void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer, VkBuffer* vertexBuffers)
+{
+    VkCommandBufferBeginInfo beginInfo;
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.pNext = NULL;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+    beginInfo.pInheritanceInfo = NULL;
+
+    vkResetCommandBuffer(engine->commandBuffers[currentBuffer], 0);
+    vkBeginCommandBuffer(engine->commandBuffers[currentBuffer], &beginInfo);
+
+    VkRenderPassBeginInfo renderPassInfo;
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.pNext = NULL;
+    renderPassInfo.renderPass = engine->renderPass;
+    renderPassInfo.framebuffer = engine->framebuffers[currentBuffer];
+    renderPassInfo.renderArea.offset.x = 0;
+    renderPassInfo.renderArea.offset.y = 0;
+    renderPassInfo.renderArea.extent = engine->swapChainExtent;
+
+    VkClearValue clearValues[2];
+    clearValues[0].color.float32[0] = 0.0f;
+    clearValues[0].color.float32[1] = 0.0f;
+    clearValues[0].color.float32[2] = 0.0f;
+    clearValues[0].color.float32[3] = 1.0f;
+    clearValues[1].depthStencil.depth = 1.0f;
+    clearValues[1].depthStencil.stencil = 0;
+
+    renderPassInfo.clearValueCount = 2;
+    renderPassInfo.pClearValues = clearValues;
+
+    vkCmdBeginRenderPass(
+        engine->commandBuffers[currentBuffer],
+        &renderPassInfo,
+        VK_SUBPASS_CONTENTS_INLINE
+    );
+
+    vkCmdBindPipeline(
+        engine->commandBuffers[currentBuffer],
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        engine->graphicsPipeline
+    );
+
+    VkDeviceSize offsets[] = {0};
+
+    vkCmdBindVertexBuffers(
+        engine->commandBuffers[currentBuffer],
+        0,
+        1,
+        vertexBuffers,
+        offsets
+    );
+
+    vkCmdBindIndexBuffer(
+        engine->commandBuffers[currentBuffer],
+        engine->indexBuffer,
+        0,
+        VK_INDEX_TYPE_UINT16
+    );
+
+    vkCmdBindDescriptorSets(
+        engine->commandBuffers[currentBuffer],
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        engine->pipelineLayout,
+        0,
+        1,
+        &(engine->descriptorSet),
+        0,
+        NULL
+    );
+
+    vkCmdDrawIndexed(
+        engine->commandBuffers[currentBuffer],
+        engine->indexCount,
+        1,
+        0,
+        0,
+        0
+    );
+
+    vkCmdEndRenderPass(engine->commandBuffers[currentBuffer]);
+
+    VkResult result;
+    result = vkEndCommandBuffer(engine->commandBuffers[currentBuffer]);
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to record command buffers.\n");
+        exit(-1);
+    }
 }
 
 // SEMAPHORES
