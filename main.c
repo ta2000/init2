@@ -331,7 +331,13 @@ void createTextureSampler(struct Engine* engine);
 void destroyTextureSampler(struct Engine* engine);
 
 // VERTEX BUFFER
-void createVertexBuffer(struct Engine* engine);
+void createVertexBuffer(
+    struct Engine* engine,
+    struct Vertex* vertices,
+    uint32_t vertexCount,
+    VkBuffer* vertexBuffer,
+    VkDeviceMemory* vertexBufferMemory
+);
 void copyBuffer(
     struct Engine* engine,
     VkBuffer* src,
@@ -364,7 +370,13 @@ void createDescriptorSetLayout(struct Engine* engine);
 void destroyDescriptorSetLayout(struct Engine* engine);
 
 // INDEX BUFFER
-void createIndexBuffer(struct Engine* engine);
+void createIndexBuffer(
+    struct Engine* engine,
+    uint16_t* indices,
+    uint32_t indexCount,
+    VkBuffer* indexBuffer,
+    VkDeviceMemory* indexBufferMemory
+);
 void destroyIndexBuffer(struct Engine* engine);
 void freeIndexBufferMemory(struct Engine* engine);
 
@@ -441,8 +453,22 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     createTextureImage(self);
     createTextureImageView(self);
     createTextureSampler(self);
-    createVertexBuffer(self);
-    createIndexBuffer(self);
+
+    createVertexBuffer(
+        self,
+        self->vertices,
+        self->vertexCount,
+        &(self->vertexBuffer),
+        &(self->vertexBufferMemory)
+    );
+    createIndexBuffer(
+        self,
+        self->indices,
+        self->indexCount,
+        &(self->indexBuffer),
+        &(self->indexBufferMemory)
+    );
+
     createUniformBuffer(self);
     createDescriptorPool(self);
     createDescriptorSet(self);
@@ -1913,7 +1939,7 @@ VkFormat findSupportedFormat(struct Engine* engine, VkFormat* candidates, uint32
 // TEXTURE IMAGE
 void createTextureImage(struct Engine* engine)
 {
-    char* imageSrc = "textures/dog.jpeg";
+    char* imageSrc = "textures/geo.jpg";
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(
         imageSrc,
@@ -2291,9 +2317,9 @@ void destroyTextureSampler(struct Engine* engine)
 }
 
 // VERTEX BUFFER
-void createVertexBuffer(struct Engine* engine)
+void createVertexBuffer(struct Engine* engine, struct Vertex* vertices, uint32_t vertexCount, VkBuffer* vertexBuffer, VkDeviceMemory* vertexBufferMemory)
 {
-    VkDeviceSize bufferSize = sizeof(engine->vertices[0]) * engine->vertexCount;
+    VkDeviceSize bufferSize = sizeof(vertices[0]) * vertexCount;
     VkBuffer stagingBuffer;
     VkDeviceMemory stagingBufferMemory;
 
@@ -2316,7 +2342,7 @@ void createVertexBuffer(struct Engine* engine)
         0,
         &data
     );
-    memcpy(data, engine->vertices, (size_t)bufferSize);
+    memcpy(data, vertices, (size_t)bufferSize);
     vkUnmapMemory(engine->device, stagingBufferMemory);
 
     createBuffer(
@@ -2325,13 +2351,13 @@ void createVertexBuffer(struct Engine* engine)
         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        &(engine->vertexBuffer),
-        &(engine->vertexBufferMemory)
+        vertexBuffer,
+        vertexBufferMemory
     );
     copyBuffer(
         engine,
         &(stagingBuffer),
-        &(engine->vertexBuffer),
+        vertexBuffer,
         bufferSize
     );
 
@@ -2484,9 +2510,9 @@ uint32_t findMemType(struct Engine* engine, uint32_t typeFilter, VkMemoryPropert
 }
 
 // INDEX BUFFER
-void createIndexBuffer(struct Engine* engine)
+void createIndexBuffer(struct Engine* engine, uint16_t* indices, uint32_t indexCount, VkBuffer* indexBuffer, VkDeviceMemory* indexBufferMemory)
 {
-    VkDeviceSize bufferSize = sizeof(engine->indices[0]) * engine->indexCount;
+    VkDeviceSize bufferSize = sizeof(indices[0]) * indexCount;
     VkBuffer stagingBuffer;
     VkDeviceMemory stagingBufferMemory;
 
@@ -2509,7 +2535,7 @@ void createIndexBuffer(struct Engine* engine)
         0,
         &data
     );
-    memcpy(data, engine->indices, (size_t)bufferSize);
+    memcpy(data, indices, (size_t)bufferSize);
     vkUnmapMemory(engine->device, stagingBufferMemory);
 
     createBuffer(
@@ -2518,13 +2544,13 @@ void createIndexBuffer(struct Engine* engine)
         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        &(engine->indexBuffer),
-        &(engine->indexBufferMemory)
+        indexBuffer,
+        indexBufferMemory
     );
     copyBuffer(
         engine,
         &(stagingBuffer),
-        &(engine->indexBuffer),
+        indexBuffer,
         bufferSize
     );
 
