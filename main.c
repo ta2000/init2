@@ -82,6 +82,46 @@ struct SwapChainSupportDetails
 };
 void freeSwapChainSupportDetails(struct SwapChainSupportDetails* details);
 
+struct VBO
+{
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexMemory;
+    uint32_t indexCount;
+    VkBuffer indexBuffer;
+    VkDeviceMemory indexMemory;
+    VkCommandBuffer commandBuffer;
+};
+void VBOallocCommandBuffer(struct VBO* VBO, VkDevice* device, VkCommandPool* commandPool)
+{
+    VkCommandBufferAllocateInfo allocInfo;
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.pNext = NULL;
+    allocInfo.commandPool = *commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+    allocInfo.commandBufferCount = 1;
+
+    VkResult result;
+    result = vkAllocateCommandBuffers(
+        *device,
+        &allocInfo,
+        &(VBO->commandBuffer)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to allocate a secondary command buffer.\n");
+        exit(-1);
+    }
+}
+void VBOfreeCommandBuffer(struct VBO* VBO, VkDevice* device, VkCommandPool* commandPool)
+{
+    vkFreeCommandBuffers(
+        *device,
+        *commandPool,
+        1,
+        &(VBO->commandBuffer)
+    );
+}
+
 struct Engine
 {
     // Window
@@ -147,15 +187,10 @@ struct Engine
     // Sampler
     VkSampler textureSampler;
 
-    // Vertex buffer
-    uint32_t vertexCount;
-    struct Vertex* vertices;
-    uint16_t* indices;
-    uint32_t indexCount;
-    VkBuffer* vertexBuffers;
-    VkDeviceMemory* vertexBufferMemories;
-    VkBuffer indexBuffer;
-    VkDeviceMemory indexBufferMemory;
+    // Vertex buffer objects
+    struct VBO* VBOs;
+    uint32_t VBOcount;
+    size_t VBOmemSize;
 
     // Uniform buffer
     VkBuffer uniformStagingBuffer;
@@ -171,6 +206,9 @@ struct Engine
     // Command buffers
     VkCommandBuffer* commandBuffers;
     uint32_t currentBuffer;
+
+    // Fence
+    VkFence renderFence;
 
     // Semaphores
     VkSemaphore imageAvailable;
@@ -381,8 +419,11 @@ void createIndexBuffer(
     VkBuffer* indexBuffer,
     VkDeviceMemory* indexBufferMemory
 );
-void destroyIndexBuffer(struct Engine* engine);
-void freeIndexBufferMemory(struct Engine* engine);
+void destroyIndexBuffer(struct Engine* engine, VkBuffer* indexBuffer);
+void freeIndexBufferMemory(
+    struct Engine* engine,
+    VkDeviceMemory* indexBufferMemory
+);
 
 // UNIFORM BUFFER
 void createUniformBuffer(struct Engine* engine);
@@ -403,9 +444,12 @@ void createCommandBuffers(struct Engine* engine);
 void freeCommandBuffers(struct Engine* engine);
 void generateDrawCommands(
     struct Engine* engine,
-    uint32_t currentBuffer,
-    VkBuffer* vertexBuffers
+    uint32_t currentBuffer
 );
+
+// FENCE
+void createFence(struct Engine* engine);
+void destroyFence(struct Engine* engine);
 
 // SEMAPHORES
 void createSemaphores(struct Engine* engine);
@@ -418,28 +462,76 @@ void recreateSwapChain(struct Engine* engine);
 /*  -----------------------------
  *  --- Main engine functions ---
  *  -----------------------------   */
+void EngineAddVBO(struct Engine* self, struct Vertex* vertices, uint32_t vertexCount, uint16_t* indices, uint32_t indexCount)
+{
+    // Allocate more memory if there is none available for new VBO
+    if (self->VBOmemSize/sizeof(struct VBO) < self->VBOcount+1)
+    {
+        self->VBOs = realloc(
+            self->VBOs,
+            (self->VBOcount + 1) * sizeof(struct VBO)
+        );
+        self->VBOmemSize += sizeof(struct VBO);
+    }
+
+    createVertexBuffer(
+        self,
+        vertices,
+        vertexCount,
+        &(self->VBOs[self->VBOcount].vertexBuffer),
+        &(self->VBOs[self->VBOcount].vertexMemory)
+    );
+
+    self->VBOs[self->VBOcount].indexCount = indexCount;
+
+    createIndexBuffer(
+        self,
+        indices,
+        indexCount,
+        &(self->VBOs[self->VBOcount].indexBuffer),
+        &(self->VBOs[self->VBOcount].indexMemory)
+    );
+
+    VBOallocCommandBuffer(
+        &(self->VBOs[self->VBOcount]),
+        &(self->device),
+        &(self->commandPool)
+    );
+
+    self->VBOcount++;
+}
+void superFunction(struct Engine* engine)
+{
+    struct Vertex vertices[] = {
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
+    };
+    uint32_t vertexCount = sizeof(vertices)/sizeof(vertices[0]);
+
+    uint16_t indices[] = {
+        0, 1, 2, 2, 3, 0
+    };
+    uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
+
+    EngineAddVBO(engine, vertices, vertexCount, indices, indexCount);
+
+}
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
-    self->vertexBuffers = calloc(1, sizeof(VkBuffer));
-    self->vertexBufferMemories = calloc(1, sizeof(VkDeviceMemory));
-
     struct Vertex vertices[] = {
 		{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
 		{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
 		{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
 		{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
     };
-    self->vertexCount = sizeof(vertices)/sizeof(vertices[0]);
-    self->vertices = malloc(sizeof(vertices));
-    memcpy(self->vertices, vertices, sizeof(vertices));
+    uint32_t vertexCount = sizeof(vertices)/sizeof(vertices[0]);
 
     uint16_t indices[] = {
-        0, 1, 2, 2, 3, 0,
-		4, 5, 6, 6, 7, 4
+        0, 1, 2, 2, 3, 0
     };
-    self->indexCount = sizeof(indices)/sizeof(indices[0]);
-    self->indices = malloc(sizeof(indices));
-    memcpy(self->indices, indices, sizeof(indices));
+    uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
 
     self->window = window;
 
@@ -460,31 +552,17 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     createTextureImage(self);
     createTextureImageView(self);
     createTextureSampler(self);
-
-    createVertexBuffer(
-        self,
-        self->vertices,
-        self->vertexCount,
-        &(self->vertexBuffers[0]),
-        &(self->vertexBufferMemories[0])
-    );
-    createIndexBuffer(
-        self,
-        self->indices,
-        self->indexCount,
-        &(self->indexBuffer),
-        &(self->indexBufferMemory)
-    );
-
+    EngineAddVBO(self, vertices, vertexCount, indices, indexCount);
     createUniformBuffer(self);
     createDescriptorPool(self);
     createDescriptorSet(self);
     createCommandBuffers(self);
+    createFence(self);
     createSemaphores(self);
 }
 void EngineUpdate(struct Engine* self)
 {
-    generateDrawCommands(self, self->currentBuffer, self->vertexBuffers);
+    generateDrawCommands(self, self->currentBuffer);
     updateUniformBuffer(self);
     drawFrame(self);
 
@@ -503,15 +581,22 @@ void EngineRun(struct Engine* self)
 }
 void EngineDestroy(struct Engine* self)
 {
+    uint32_t i;
+
     destroySemaphores(self);
+    destroyFence(self);
     freeCommandBuffers(self);
     destroyDescriptorPool(self);
     freeUniformBufferMemory(self);
     destroyUniformBuffer(self);
-    freeIndexBufferMemory(self);
-    destroyIndexBuffer(self);
-    freeVertexBufferMemory(self, &(self->vertexBufferMemories[0]));
-    destroyVertexBuffer(self, &(self->vertexBuffers[0]));
+    for (i=0; i<self->VBOcount; i++)
+    {
+        freeIndexBufferMemory(self, &(self->VBOs[i].indexMemory));
+        destroyIndexBuffer(self, &(self->VBOs[i].indexBuffer));
+        freeVertexBufferMemory(self, &(self->VBOs[i].vertexMemory));
+        destroyVertexBuffer(self, &(self->VBOs[i].vertexBuffer));
+    }
+    free(self->VBOs);
     destroyTextureSampler(self);
     destroyTextureImageView(self);
     destroyTextureImage(self);
@@ -561,7 +646,23 @@ static void keyCallback(
 {
     if (key == GLFW_KEY_E && action == GLFW_PRESS)
     {
-        printf("Pressed E key.\n");
+        struct Engine* engine =
+            (struct Engine*)glfwGetWindowUserPointer(window);
+
+        struct Vertex vertices[] = {
+            {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+            {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+            {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+            {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
+        };
+        uint32_t vertexCount = sizeof(vertices)/sizeof(vertices[0]);
+
+        uint16_t indices[] = {
+            0, 1, 2, 2, 3, 0
+        };
+        uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
+
+        EngineAddVBO(engine, vertices, vertexCount, indices, indexCount);
     }
 }
 
@@ -2572,14 +2673,14 @@ void createIndexBuffer(struct Engine* engine, uint16_t* indices, uint32_t indexC
     vkFreeMemory(engine->device, stagingBufferMemory, NULL);
 }
 
-void destroyIndexBuffer(struct Engine* engine)
+void destroyIndexBuffer(struct Engine* engine, VkBuffer* indexBuffer)
 {
-    vkDestroyBuffer(engine->device, engine->indexBuffer, NULL);
+    vkDestroyBuffer(engine->device, *indexBuffer, NULL);
 }
 
-void freeIndexBufferMemory(struct Engine* engine)
+void freeIndexBufferMemory(struct Engine* engine, VkDeviceMemory* indexBufferMemory)
 {
-    vkFreeMemory(engine->device, engine->indexBufferMemory, NULL);
+    vkFreeMemory(engine->device, *indexBufferMemory, NULL);
 }
 
 // UNIFORM BUFFER
@@ -2808,15 +2909,83 @@ void freeCommandBuffers(struct Engine* engine)
     free(engine->commandBuffers);
 }
 
-void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer, VkBuffer* vertexBuffers)
+void recordSecondaryCommands(struct Engine* engine, struct VBO* VBO)
+{
+    VkCommandBufferInheritanceInfo inheritanceInfo;
+    inheritanceInfo.sType =
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+    inheritanceInfo.pNext = NULL;
+    inheritanceInfo.renderPass = engine->renderPass;
+    inheritanceInfo.subpass = 0;
+    inheritanceInfo.framebuffer = engine->framebuffers[engine->currentBuffer];
+    inheritanceInfo.occlusionQueryEnable = VK_FALSE;
+    inheritanceInfo.queryFlags = 0;
+    inheritanceInfo.pipelineStatistics = 0;
+
+    VkCommandBufferBeginInfo beginInfo;
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.pNext = NULL;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+    beginInfo.pInheritanceInfo = &inheritanceInfo;
+
+    vkBeginCommandBuffer(
+        VBO->commandBuffer,
+        &beginInfo
+    );
+
+    vkCmdBindPipeline(
+        VBO->commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        engine->graphicsPipeline
+    );
+
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(
+        VBO->commandBuffer,
+        0,
+        1,
+        &(VBO->vertexBuffer),
+        offsets
+    );
+
+    vkCmdBindIndexBuffer(
+        VBO->commandBuffer,
+        VBO->indexBuffer,
+        0,
+        VK_INDEX_TYPE_UINT16
+    );
+
+    vkCmdBindDescriptorSets(
+        VBO->commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        engine->pipelineLayout,
+        0,
+        1,
+        &(engine->descriptorSet),
+        0,
+        NULL
+    );
+
+    vkCmdDrawIndexed(
+        VBO->commandBuffer,
+        VBO->indexCount,
+        1,
+        0,
+        0,
+        0
+    );
+
+    vkEndCommandBuffer(VBO->commandBuffer);
+}
+
+void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
 {
     VkCommandBufferBeginInfo beginInfo;
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.pNext = NULL;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+    beginInfo.flags = 0;
     beginInfo.pInheritanceInfo = NULL;
 
-    vkResetCommandBuffer(engine->commandBuffers[currentBuffer], 0);
     vkBeginCommandBuffer(engine->commandBuffers[currentBuffer], &beginInfo);
 
     VkRenderPassBeginInfo renderPassInfo;
@@ -2839,54 +3008,32 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer, VkBuffe
     renderPassInfo.clearValueCount = 2;
     renderPassInfo.pClearValues = clearValues;
 
+    uint32_t i;
+    for (i=0; i<engine->VBOcount; i++)
+    {
+        recordSecondaryCommands(engine, &(engine->VBOs[i]));
+    }
+
     vkCmdBeginRenderPass(
         engine->commandBuffers[currentBuffer],
         &renderPassInfo,
-        VK_SUBPASS_CONTENTS_INLINE
+        VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS
     );
 
-    vkCmdBindPipeline(
-        engine->commandBuffers[currentBuffer],
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        engine->graphicsPipeline
-    );
+    VkCommandBuffer secondaryCommands[20];
+    for (i=0; i<engine->VBOcount; i++)
+    {
+        secondaryCommands[i] = engine->VBOs[i].commandBuffer;
+    }
 
-    VkDeviceSize offsets[] = {0};
-
-    vkCmdBindVertexBuffers(
-        engine->commandBuffers[currentBuffer],
-        0,
-        1,
-        vertexBuffers,
-        offsets
-    );
-
-    vkCmdBindIndexBuffer(
-        engine->commandBuffers[currentBuffer],
-        engine->indexBuffer,
-        0,
-        VK_INDEX_TYPE_UINT16
-    );
-
-    vkCmdBindDescriptorSets(
-        engine->commandBuffers[currentBuffer],
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        engine->pipelineLayout,
-        0,
-        1,
-        &(engine->descriptorSet),
-        0,
-        NULL
-    );
-
-    vkCmdDrawIndexed(
-        engine->commandBuffers[currentBuffer],
-        engine->indexCount,
-        1,
-        0,
-        0,
-        0
-    );
+    if (engine->VBOcount > 0)
+    {
+        vkCmdExecuteCommands(
+            engine->commandBuffers[currentBuffer],
+            engine->VBOcount,
+            secondaryCommands
+        );
+    }
 
     vkCmdEndRenderPass(engine->commandBuffers[currentBuffer]);
 
@@ -2897,6 +3044,32 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer, VkBuffe
         fprintf(stderr, "Failed to record command buffers.\n");
         exit(-1);
     }
+}
+
+void createFence(struct Engine* engine)
+{
+    VkFenceCreateInfo createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+
+    VkResult result;
+    result = vkCreateFence(
+        engine->device,
+        &createInfo,
+        NULL,
+        &(engine->renderFence)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to create fence.\n");
+        exit(-1);
+    }
+}
+
+void destroyFence(struct Engine* engine)
+{
+    vkDestroyFence(engine->device, engine->renderFence, NULL);
 }
 
 // SEMAPHORES
@@ -2985,9 +3158,8 @@ void drawFrame(struct Engine* engine)
         engine->graphicsQueue,
         1,
         &submitInfo,
-        VK_NULL_HANDLE
+        engine->renderFence
     );
-
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
         recreateSwapChain(engine);
@@ -2997,6 +3169,19 @@ void drawFrame(struct Engine* engine)
         fprintf(stderr, "Error while submitting queue.\n");
         exit(-1);
     }
+
+    do
+    {
+        result = vkWaitForFences(
+            engine->device,
+            1,
+            &(engine->renderFence),
+            VK_TRUE,
+            100000000
+        );
+    }
+    while (result == VK_TIMEOUT);
+    vkResetFences(engine->device, 1, &(engine->renderFence));
 
     VkPresentInfoKHR presentInfo;
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
