@@ -500,23 +500,29 @@ void EngineAddVBO(struct Engine* self, struct Vertex* vertices, uint32_t vertexC
 
     self->VBOcount++;
 }
-void superFunction(struct Engine* engine)
+void EngineRemoveVBO(struct Engine* self)
 {
-    struct Vertex vertices[] = {
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-        {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
-    };
-    uint32_t vertexCount = sizeof(vertices)/sizeof(vertices[0]);
+    if (self->VBOcount > 0)
+    {
+        self->VBOcount--;
 
-    uint16_t indices[] = {
-        0, 1, 2, 2, 3, 0
-    };
-    uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
-
-    EngineAddVBO(engine, vertices, vertexCount, indices, indexCount);
-
+        freeIndexBufferMemory(
+            self,
+            &(self->VBOs[self->VBOcount].indexMemory)
+        );
+        destroyIndexBuffer(
+            self,
+            &(self->VBOs[self->VBOcount].indexBuffer)
+        );
+        freeVertexBufferMemory(
+            self,
+            &(self->VBOs[self->VBOcount].vertexMemory)
+        );
+        destroyVertexBuffer(
+            self,
+            &(self->VBOs[self->VBOcount].vertexBuffer)
+        );
+    }
 }
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
@@ -552,7 +558,7 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     createTextureImage(self);
     createTextureImageView(self);
     createTextureSampler(self);
-    EngineAddVBO(self, vertices, vertexCount, indices, indexCount);
+    //EngineAddVBO(self, vertices, vertexCount, indices, indexCount);
     createUniformBuffer(self);
     createDescriptorPool(self);
     createDescriptorSet(self);
@@ -644,11 +650,11 @@ static void keyCallback(
     int action,
     int mods)
 {
+    struct Engine* engine =
+        (struct Engine*)glfwGetWindowUserPointer(window);
+
     if (key == GLFW_KEY_E && action == GLFW_PRESS)
     {
-        struct Engine* engine =
-            (struct Engine*)glfwGetWindowUserPointer(window);
-
         struct Vertex vertices[] = {
             {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
             {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
@@ -663,6 +669,10 @@ static void keyCallback(
         uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
 
         EngineAddVBO(engine, vertices, vertexCount, indices, indexCount);
+    }
+    else if (key == GLFW_KEY_Q && action == GLFW_PRESS)
+    {
+        EngineRemoveVBO(engine);
     }
 }
 
