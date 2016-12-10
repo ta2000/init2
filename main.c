@@ -3056,6 +3056,7 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
     }
 }
 
+// FENCE
 void createFence(struct Engine* engine)
 {
     VkFenceCreateInfo createInfo;
