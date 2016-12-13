@@ -7,6 +7,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,7 +62,6 @@ VkVertexInputAttributeDescription* getAttributeDescriptions()
 
 struct UniformBufferObject
 {
-    mat4x4 model;
     mat4x4 view;
     mat4x4 proj;
 };
@@ -84,6 +84,7 @@ void freeSwapChainSupportDetails(struct SwapChainSupportDetails* details);
 
 struct VBO
 {
+    float rotation;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexMemory;
     uint32_t indexCount;
@@ -197,6 +198,7 @@ struct Engine
     VkDeviceMemory uniformStagingBufferMemory;
     VkBuffer uniformBuffer;
     VkDeviceMemory uniformBufferMemory;
+    struct UniformBufferObject ubo;
 
     // Descriptor pool/set
     VkDescriptorSetLayout descriptorSetLayout;
@@ -498,6 +500,8 @@ void EngineAddVBO(struct Engine* self, struct Vertex* vertices, uint32_t vertexC
         &(self->commandPool)
     );
 
+    self->VBOs[self->VBOcount].rotation = rand() % 360;
+
     self->VBOcount++;
 }
 void EngineRemoveVBO(struct Engine* self)
@@ -558,7 +562,7 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     createTextureImage(self);
     createTextureImageView(self);
     createTextureSampler(self);
-    //EngineAddVBO(self, vertices, vertexCount, indices, indexCount);
+    EngineAddVBO(self, vertices, vertexCount, indices, indexCount);
     createUniformBuffer(self);
     createDescriptorPool(self);
     createDescriptorSet(self);
@@ -677,6 +681,8 @@ static void keyCallback(
 }
 
 int main() {
+    srand(time(NULL));
+
     // Init GLFW
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -1762,14 +1768,19 @@ void createGraphicsPipeline(struct Engine* engine)
     multisampleInfo.alphaToCoverageEnable = VK_FALSE;
     multisampleInfo.alphaToOneEnable = VK_FALSE;
 
+    VkPushConstantRange pushConstantRange;
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(mat4x4);
+
     memset(&pipelineLayoutInfo, 0, sizeof(pipelineLayoutInfo));
     pipelineLayoutInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     VkDescriptorSetLayout setLayouts[] = {engine->descriptorSetLayout};
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = setLayouts;
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayoutInfo.pPushConstantRanges = NULL;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
     if (vkCreatePipelineLayout(
             engine->device,
@@ -2721,52 +2732,38 @@ void createUniformBuffer(struct Engine* engine)
 
 void updateUniformBuffer(struct Engine* engine)
 {
-    struct UniformBufferObject ubo;
-    memset(&ubo, 0, sizeof(ubo));
-
-    mat4x4 empty;
-    memset(&empty, 0, sizeof(empty));
-    mat4x4_identity(empty);
-
-    mat4x4_identity(ubo.model);
-    mat4x4_rotate(
-        ubo.model, empty,
-        0.0f, 0.0f, 1.0f,
-        (float)degreesToRadians(22.5)
-    );
-
     vec3 eye = {2.0f, 2.0f, 2.0f};
     vec3 center = {0.0f, 0.0f, 0.0f};
     vec3 up = {0.0f, 0.0f, 1.0f};
-    mat4x4_look_at(ubo.view, eye, center, up);
+    mat4x4_look_at(engine->ubo.view, eye, center, up);
 
     mat4x4_perspective(
-        ubo.proj,
+        engine->ubo.proj,
         (float)degreesToRadians(45.0f),
         engine->swapChainExtent.width/(float)engine->swapChainExtent.height,
         0.1f,
         100.0f
     );
 
-    ubo.proj[1][1] *= -1;
+    engine->ubo.proj[1][1] *= -1;
 
     void* data;
     vkMapMemory(
         engine->device,
         engine->uniformStagingBufferMemory,
         0,
-        sizeof(ubo),
+        sizeof(engine->ubo),
         0,
         &data
     );
-    memcpy(data, &ubo, sizeof(ubo));
+    memcpy(data, &(engine->ubo), sizeof(engine->ubo));
     vkUnmapMemory(engine->device, engine->uniformStagingBufferMemory);
 
     copyBuffer(
         engine,
         &(engine->uniformStagingBuffer),
         &(engine->uniformBuffer),
-        sizeof(ubo)
+        sizeof(engine->ubo)
     );
 }
 
@@ -2974,6 +2971,30 @@ void recordSecondaryCommands(struct Engine* engine, struct VBO* VBO)
         &(engine->descriptorSet),
         0,
         NULL
+    );
+
+    mat4x4 empty;
+    mat4x4 model;
+    memset(&empty, 0, sizeof(empty));
+    memset(&model, 0, sizeof(model));
+    mat4x4_identity(empty);
+    mat4x4_identity(model);
+    mat4x4_rotate(
+        model, empty,
+        0.0f, 0.0f, 1.0f,
+        (float)degreesToRadians(VBO->rotation)
+    );
+
+    mat4x4 vp, mvp;
+    mat4x4_mul(vp, engine->ubo.proj, engine->ubo.view);
+    mat4x4_mul(mvp, vp, model);
+    vkCmdPushConstants(
+        VBO->commandBuffer,
+        engine->pipelineLayout,
+        VK_SHADER_STAGE_VERTEX_BIT,
+        0,
+        sizeof(mvp),
+        &mvp
     );
 
     vkCmdDrawIndexed(
