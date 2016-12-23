@@ -7,6 +7,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include <assimp/cimport.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +18,9 @@
 #include <stdint.h>
 #include <assert.h>
 #include <math.h>
+
+#define MAX_MESHES 20
+#define MAX_OBJECTS 500
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -82,46 +89,22 @@ struct SwapChainSupportDetails
 };
 void freeSwapChainSupportDetails(struct SwapChainSupportDetails* details);
 
-struct VBO
+struct Mesh
 {
-    float rotation;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexMemory;
     uint32_t indexCount;
     VkBuffer indexBuffer;
     VkDeviceMemory indexMemory;
+};
+
+struct GameObject
+{
+    struct Mesh* mesh;
+    float rotation;
+    vec3 position;
     VkCommandBuffer commandBuffer;
 };
-void VBOallocCommandBuffer(struct VBO* VBO, VkDevice* device, VkCommandPool* commandPool)
-{
-    VkCommandBufferAllocateInfo allocInfo;
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.pNext = NULL;
-    allocInfo.commandPool = *commandPool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-    allocInfo.commandBufferCount = 1;
-
-    VkResult result;
-    result = vkAllocateCommandBuffers(
-        *device,
-        &allocInfo,
-        &(VBO->commandBuffer)
-    );
-    if (result != VK_SUCCESS)
-    {
-        fprintf(stderr, "Failed to allocate a secondary command buffer.\n");
-        exit(-1);
-    }
-}
-void VBOfreeCommandBuffer(struct VBO* VBO, VkDevice* device, VkCommandPool* commandPool)
-{
-    vkFreeCommandBuffers(
-        *device,
-        *commandPool,
-        1,
-        &(VBO->commandBuffer)
-    );
-}
 
 struct Engine
 {
@@ -188,10 +171,13 @@ struct Engine
     // Sampler
     VkSampler textureSampler;
 
-    // Vertex buffer objects
-    struct VBO* VBOs;
-    uint32_t VBOcount;
-    size_t VBOmemSize;
+    // Game objects
+    struct GameObject gameObjects[MAX_OBJECTS];
+    uint32_t gameObjectCount;
+
+    // Meshes
+    struct Mesh meshes[MAX_MESHES];
+    uint32_t meshCount;
 
     // Uniform buffer
     VkBuffer uniformStagingBuffer;
@@ -371,6 +357,9 @@ void createImageView(
 void createTextureSampler(struct Engine* engine);
 void destroyTextureSampler(struct Engine* engine);
 
+// LOAD MODEL
+void loadModel(struct Engine* self, const char* path);
+
 // VERTEX BUFFER
 void createVertexBuffer(
     struct Engine* engine,
@@ -464,69 +453,98 @@ void recreateSwapChain(struct Engine* engine);
 /*  -----------------------------
  *  --- Main engine functions ---
  *  -----------------------------   */
-void EngineAddVBO(struct Engine* self, struct Vertex* vertices, uint32_t vertexCount, uint16_t* indices, uint32_t indexCount)
+void EngineCreateGameObject(struct Engine* self, struct Mesh* mesh)
 {
-    // Allocate more memory if there is none available for new VBO
-    if (self->VBOmemSize/sizeof(struct VBO) < self->VBOcount+1)
+    if (self->gameObjectCount >= MAX_OBJECTS)
     {
-        self->VBOs = realloc(
-            self->VBOs,
-            (self->VBOcount + 1) * sizeof(struct VBO)
-        );
-        self->VBOmemSize += sizeof(struct VBO);
+        printf("Object limit reached.\n");
+        return;
+    }
+
+    // Set mesh of new game object
+    self->gameObjects[self->gameObjectCount].mesh = mesh;
+
+    // Allocate command buffers
+    VkCommandBufferAllocateInfo allocInfo;
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.pNext = NULL;
+    allocInfo.commandPool = self->commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+    allocInfo.commandBufferCount = 1;
+
+    VkResult result;
+    result = vkAllocateCommandBuffers(
+        self->device,
+        &allocInfo,
+        &(self->gameObjects[self->gameObjectCount].commandBuffer)
+    );
+    if (result != VK_SUCCESS)
+    {
+        fprintf(stderr, "Failed to allocate command buffer.\n");
+        exit(-1);
+    }
+
+    self->gameObjectCount++;
+}
+void EngineDestroyGameObject(struct Engine* self, struct GameObject* gameObject)
+{
+    if (self->gameObjectCount <= 0)
+    {
+        printf("No game objects left to destroy.\n");
+        return;
+    }
+
+    // Free command buffers
+    vkFreeCommandBuffers(
+        self->device,
+        self->commandPool,
+        1,
+        &(gameObject->commandBuffer)
+    );
+
+    self->gameObjectCount--;
+}
+void EngineCreateMesh(struct Engine* self, struct Vertex* vertices, uint32_t vertexCount, uint16_t* indices, uint32_t indexCount)
+{
+    if (self->meshCount >= MAX_MESHES)
+    {
+        printf("Mesh limit reached.\n");
+        return;
     }
 
     createVertexBuffer(
         self,
         vertices,
         vertexCount,
-        &(self->VBOs[self->VBOcount].vertexBuffer),
-        &(self->VBOs[self->VBOcount].vertexMemory)
+        &(self->meshes[self->meshCount].vertexBuffer),
+        &(self->meshes[self->meshCount].vertexMemory)
     );
 
-    self->VBOs[self->VBOcount].indexCount = indexCount;
+    self->meshes[self->meshCount].indexCount = indexCount;
 
     createIndexBuffer(
         self,
         indices,
         indexCount,
-        &(self->VBOs[self->VBOcount].indexBuffer),
-        &(self->VBOs[self->VBOcount].indexMemory)
+        &(self->meshes[self->meshCount].indexBuffer),
+        &(self->meshes[self->meshCount].indexMemory)
     );
 
-    VBOallocCommandBuffer(
-        &(self->VBOs[self->VBOcount]),
-        &(self->device),
-        &(self->commandPool)
-    );
-
-    self->VBOs[self->VBOcount].rotation = rand() % 360;
-
-    self->VBOcount++;
+    self->meshCount++;
 }
-void EngineRemoveVBO(struct Engine* self)
+void EngineDestroyMesh(struct Engine* self, struct Mesh* mesh)
 {
-    if (self->VBOcount > 0)
+    if (self->meshCount <= 0)
     {
-        self->VBOcount--;
-
-        freeIndexBufferMemory(
-            self,
-            &(self->VBOs[self->VBOcount].indexMemory)
-        );
-        destroyIndexBuffer(
-            self,
-            &(self->VBOs[self->VBOcount].indexBuffer)
-        );
-        freeVertexBufferMemory(
-            self,
-            &(self->VBOs[self->VBOcount].vertexMemory)
-        );
-        destroyVertexBuffer(
-            self,
-            &(self->VBOs[self->VBOcount].vertexBuffer)
-        );
+        printf("No meshes left to destroy.\n");
+        return;
     }
+
+    self->meshCount--;
+    freeIndexBufferMemory(self, &(mesh->indexMemory));
+    destroyIndexBuffer(self, &(mesh->indexBuffer));
+    freeVertexBufferMemory(self, &(mesh->vertexMemory));
+    destroyVertexBuffer(self, &(mesh->vertexBuffer));
 }
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
@@ -562,7 +580,7 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     createTextureImage(self);
     createTextureImageView(self);
     createTextureSampler(self);
-    EngineAddVBO(self, vertices, vertexCount, indices, indexCount);
+    loadModel(self, "assets/models/robot.dae");
     createUniformBuffer(self);
     createDescriptorPool(self);
     createDescriptorSet(self);
@@ -599,14 +617,14 @@ void EngineDestroy(struct Engine* self)
     destroyDescriptorPool(self);
     freeUniformBufferMemory(self);
     destroyUniformBuffer(self);
-    for (i=0; i<self->VBOcount; i++)
+    for (i=0; i<self->meshCount; i++)
     {
-        freeIndexBufferMemory(self, &(self->VBOs[i].indexMemory));
-        destroyIndexBuffer(self, &(self->VBOs[i].indexBuffer));
-        freeVertexBufferMemory(self, &(self->VBOs[i].vertexMemory));
-        destroyVertexBuffer(self, &(self->VBOs[i].vertexBuffer));
+        EngineDestroyMesh(self, &(self->meshes[i]));
     }
-    free(self->VBOs);
+    for (i=0; i<self->gameObjectCount; i++)
+    {
+        EngineDestroyGameObject(self, &(self->gameObjects[i]));
+    }
     destroyTextureSampler(self);
     destroyTextureImageView(self);
     destroyTextureImage(self);
@@ -657,7 +675,7 @@ static void keyCallback(
     struct Engine* engine =
         (struct Engine*)glfwGetWindowUserPointer(window);
 
-    if (key == GLFW_KEY_E && action == GLFW_PRESS)
+    if (key == GLFW_KEY_M && action == GLFW_PRESS)
     {
         struct Vertex vertices[] = {
             {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
@@ -672,11 +690,38 @@ static void keyCallback(
         };
         uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
 
-        EngineAddVBO(engine, vertices, vertexCount, indices, indexCount);
+        EngineCreateMesh(
+            engine,
+            vertices,
+            vertexCount,
+            indices,
+            indexCount
+        );
+        printf("Mesh created. Count: %u.\n", engine->meshCount);
+    }
+    else if (key == GLFW_KEY_N && action == GLFW_PRESS)
+    {
+        EngineDestroyMesh(
+            engine,
+            &(engine->meshes[engine->meshCount-1])
+        );
+        printf("Mesh destroyed. Count: %u.\n", engine->meshCount);
+    }
+    else if (key == GLFW_KEY_E && action == GLFW_PRESS)
+    {
+        EngineCreateGameObject(
+            engine,
+            &(engine->meshes[engine->meshCount-1])
+        );
+        printf("Game object created. Count: %u.\n", engine->gameObjectCount);
     }
     else if (key == GLFW_KEY_Q && action == GLFW_PRESS)
     {
-        EngineRemoveVBO(engine);
+        EngineDestroyGameObject(
+            engine,
+            &(engine->gameObjects[engine->gameObjectCount-1])
+        );
+        printf("Game object destroyed. Count: %u.\n", engine->gameObjectCount);
     }
 }
 
@@ -2075,7 +2120,7 @@ VkFormat findSupportedFormat(struct Engine* engine, VkFormat* candidates, uint32
 // TEXTURE IMAGE
 void createTextureImage(struct Engine* engine)
 {
-    char* imageSrc = "textures/geo.jpg";
+    char* imageSrc = "assets/textures/robot-color.png";
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(
         imageSrc,
@@ -2450,6 +2495,38 @@ void destroyTextureSampler(struct Engine* engine)
         engine->textureSampler,
         NULL
     );
+}
+
+// LOAD MODEL
+void loadModel(struct Engine* self, const char* path)
+{
+    const struct aiScene* scene;
+    scene = aiImportFile(
+        path,
+        aiProcess_CalcTangentSpace |
+        aiProcess_Triangulate |
+        aiProcess_JoinIdenticalVertices |
+        aiProcess_SortByPType
+    );
+
+    if (!scene)
+    {
+        fprintf(stderr, "Failed to load model: %s\n", path);
+        exit(-1);
+    }
+
+    if (scene->mNumMeshes != 1)
+    {
+        fprintf(stderr, "Not one mesh in model %s\n", path);
+        exit(-1);
+    }
+
+    printf("%u vertices.\n", scene->mMeshes[0]->mNumVertices);
+    //uint32_t i;
+    //for (i=0; i<scene.mMeshes->
+    //EngineCreateMesh(self, vertices, vertexCount, indices, indexCount);
+
+    aiReleaseImport(scene);
 }
 
 // VERTEX BUFFER
@@ -2916,7 +2993,7 @@ void freeCommandBuffers(struct Engine* engine)
     free(engine->commandBuffers);
 }
 
-void recordSecondaryCommands(struct Engine* engine, struct VBO* VBO)
+void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObject)
 {
     VkCommandBufferInheritanceInfo inheritanceInfo;
     inheritanceInfo.sType =
@@ -2936,34 +3013,34 @@ void recordSecondaryCommands(struct Engine* engine, struct VBO* VBO)
     beginInfo.pInheritanceInfo = &inheritanceInfo;
 
     vkBeginCommandBuffer(
-        VBO->commandBuffer,
+        gameObject->commandBuffer,
         &beginInfo
     );
 
     vkCmdBindPipeline(
-        VBO->commandBuffer,
+        gameObject->commandBuffer,
         VK_PIPELINE_BIND_POINT_GRAPHICS,
         engine->graphicsPipeline
     );
 
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(
-        VBO->commandBuffer,
+        gameObject->commandBuffer,
         0,
         1,
-        &(VBO->vertexBuffer),
+        &(gameObject->mesh->vertexBuffer),
         offsets
     );
 
     vkCmdBindIndexBuffer(
-        VBO->commandBuffer,
-        VBO->indexBuffer,
+        gameObject->commandBuffer,
+        gameObject->mesh->indexBuffer,
         0,
         VK_INDEX_TYPE_UINT16
     );
 
     vkCmdBindDescriptorSets(
-        VBO->commandBuffer,
+        gameObject->commandBuffer,
         VK_PIPELINE_BIND_POINT_GRAPHICS,
         engine->pipelineLayout,
         0,
@@ -2982,14 +3059,14 @@ void recordSecondaryCommands(struct Engine* engine, struct VBO* VBO)
     mat4x4_rotate(
         model, empty,
         0.0f, 0.0f, 1.0f,
-        (float)degreesToRadians(VBO->rotation)
+        (float)degreesToRadians(gameObject->rotation)
     );
 
     mat4x4 vp, mvp;
     mat4x4_mul(vp, engine->ubo.proj, engine->ubo.view);
     mat4x4_mul(mvp, vp, model);
     vkCmdPushConstants(
-        VBO->commandBuffer,
+        gameObject->commandBuffer,
         engine->pipelineLayout,
         VK_SHADER_STAGE_VERTEX_BIT,
         0,
@@ -2998,15 +3075,15 @@ void recordSecondaryCommands(struct Engine* engine, struct VBO* VBO)
     );
 
     vkCmdDrawIndexed(
-        VBO->commandBuffer,
-        VBO->indexCount,
+        gameObject->commandBuffer,
+        gameObject->mesh->indexCount,
         1,
         0,
         0,
         0
     );
 
-    vkEndCommandBuffer(VBO->commandBuffer);
+    vkEndCommandBuffer(gameObject->commandBuffer);
 }
 
 void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
@@ -3040,9 +3117,9 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
     renderPassInfo.pClearValues = clearValues;
 
     uint32_t i;
-    for (i=0; i<engine->VBOcount; i++)
+    for (i=0; i<engine->gameObjectCount; i++)
     {
-        recordSecondaryCommands(engine, &(engine->VBOs[i]));
+        recordSecondaryCommands(engine, &(engine->gameObjects[i]));
     }
 
     vkCmdBeginRenderPass(
@@ -3051,17 +3128,17 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
         VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS
     );
 
-    VkCommandBuffer secondaryCommands[20];
-    for (i=0; i<engine->VBOcount; i++)
+    VkCommandBuffer secondaryCommands[MAX_OBJECTS];
+    for (i=0; i<engine->gameObjectCount; i++)
     {
-        secondaryCommands[i] = engine->VBOs[i].commandBuffer;
+        secondaryCommands[i] = engine->gameObjects[i].commandBuffer;
     }
 
-    if (engine->VBOcount > 0)
+    if (engine->gameObjectCount > 0)
     {
         vkCmdExecuteCommands(
             engine->commandBuffers[currentBuffer],
-            engine->VBOcount,
+            engine->gameObjectCount,
             secondaryCommands
         );
     }

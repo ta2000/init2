@@ -8,7 +8,7 @@ CFLAGS=-g -Wall -Wextra -Wpedantic
 # These are linker flags only needed if using external libraries but we are not
 # in this
 LDFLAGS=-lglfw3 -lm -ldl -lXinerama -lXrandr -lXcursor -lX11
-LDFLAGS+=-lXxf86vm -lpthread -lvulkan
+LDFLAGS+=-lXxf86vm -lpthread -lvulkan -L/home/tom/Documents/assimp/lib -lassimp
 # This says to grab all the files with the c extension in this directory and
 # make them the array called SRC_SOURCES
 SRC_SOURCES=$(wildcard *.c)
