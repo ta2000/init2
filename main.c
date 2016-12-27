@@ -102,7 +102,7 @@ struct Mesh
 struct GameObject
 {
     struct Mesh* mesh;
-    float rotation;
+    vec3 rotation;
     vec3 position;
     VkCommandBuffer commandBuffer;
 };
@@ -549,19 +549,6 @@ void EngineDestroyMesh(struct Engine* self, struct Mesh* mesh)
 }
 void EngineInit(struct Engine* self, GLFWwindow* window)
 {
-    struct Vertex vertices[] = {
-		{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-		{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-		{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-		{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
-    };
-    uint32_t vertexCount = sizeof(vertices)/sizeof(vertices[0]);
-
-    uint32_t indices[] = {
-        0, 1, 2, 2, 3, 0
-    };
-    uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
-
     self->window = window;
 
     createInstance(self);
@@ -582,6 +569,10 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     createTextureImageView(self);
     createTextureSampler(self);
     loadModel(self, "assets/models/robot.dae");
+    EngineCreateGameObject(
+        self,
+        &(self->meshes[0])
+    );
     //loadModel(self, "assets/models/chalet.dae");
     createUniformBuffer(self);
     createDescriptorPool(self);
@@ -679,53 +670,41 @@ static void keyCallback(
     struct Engine* engine =
         (struct Engine*)glfwGetWindowUserPointer(window);
 
-    if (key == GLFW_KEY_M && action == GLFW_PRESS)
+    if (key == GLFW_KEY_W && action == GLFW_PRESS)
     {
-        struct Vertex vertices[] = {
-            {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-            {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-            {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-            {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
-        };
-        uint32_t vertexCount = sizeof(vertices)/sizeof(vertices[0]);
-
-        uint32_t indices[] = {
-            0, 1, 2, 2, 3, 0
-        };
-        uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
-
-        EngineCreateMesh(
-            engine,
-            vertices,
-            vertexCount,
-            indices,
-            indexCount
-        );
-        printf("Mesh created. Count: %u.\n", engine->meshCount);
+        engine->gameObjects[0].rotation[0] += 15;
+        if (engine->gameObjects[0].rotation[0] > 360)
+            engine->gameObjects[0].rotation[0] = 0;
     }
-    else if (key == GLFW_KEY_N && action == GLFW_PRESS)
+    else if (key == GLFW_KEY_S && action == GLFW_PRESS)
     {
-        EngineDestroyMesh(
-            engine,
-            &(engine->meshes[engine->meshCount-1])
-        );
-        printf("Mesh destroyed. Count: %u.\n", engine->meshCount);
+        engine->gameObjects[0].rotation[0] -= 15;
+        if (engine->gameObjects[0].rotation[0] < 0)
+            engine->gameObjects[0].rotation[0] = 360;
     }
-    else if (key == GLFW_KEY_E && action == GLFW_PRESS)
+    else if (key == GLFW_KEY_A && action == GLFW_PRESS)
     {
-        EngineCreateGameObject(
-            engine,
-            &(engine->meshes[engine->meshCount-1])
-        );
-        printf("Game object created. Count: %u.\n", engine->gameObjectCount);
+        engine->gameObjects[0].rotation[1] += 15;
+        if (engine->gameObjects[0].rotation[1] > 360)
+            engine->gameObjects[0].rotation[1] = 0;
+    }
+    else if (key == GLFW_KEY_D && action == GLFW_PRESS)
+    {
+        engine->gameObjects[0].rotation[1] -= 15;
+        if (engine->gameObjects[0].rotation[1] < 0)
+            engine->gameObjects[0].rotation[1] = 360;
     }
     else if (key == GLFW_KEY_Q && action == GLFW_PRESS)
     {
-        EngineDestroyGameObject(
-            engine,
-            &(engine->gameObjects[engine->gameObjectCount-1])
-        );
-        printf("Game object destroyed. Count: %u.\n", engine->gameObjectCount);
+        engine->gameObjects[0].rotation[2] += 15;
+        if (engine->gameObjects[0].rotation[2] > 360)
+            engine->gameObjects[0].rotation[2] = 0;
+    }
+    else if (key == GLFW_KEY_E && action == GLFW_PRESS)
+    {
+        engine->gameObjects[0].rotation[2] -= 15;
+        if (engine->gameObjects[0].rotation[2] < 0)
+            engine->gameObjects[0].rotation[2] = 360;
     }
 }
 
@@ -2124,7 +2103,7 @@ VkFormat findSupportedFormat(struct Engine* engine, VkFormat* candidates, uint32
 // TEXTURE IMAGE
 void createTextureImage(struct Engine* engine)
 {
-    char* imageSrc = "assets/textures/robot-color.png";
+    char* imageSrc = "assets/textures/robot-texture.png";
     //char* imageSrc = "assets/textures/chalet.jpg";
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(
@@ -2846,7 +2825,7 @@ void createUniformBuffer(struct Engine* engine)
 
 void updateUniformBuffer(struct Engine* engine)
 {
-    vec3 eye = {22.0f, 22.0f, 22.0f};
+    vec3 eye = {12.0f, 12.0f, 12.0f};
     vec3 center = {0.0f, 0.0f, 0.0f};
     vec3 up = {0.0f, 0.0f, 1.0f};
     mat4x4_look_at(engine->ubo.view, eye, center, up);
@@ -3087,16 +3066,44 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
         NULL
     );
 
-    mat4x4 empty;
-    mat4x4 model;
+    mat4x4 empty, model, XY;
     memset(&empty, 0, sizeof(empty));
     memset(&model, 0, sizeof(model));
     mat4x4_identity(empty);
     mat4x4_identity(model);
-    mat4x4_rotate(
-        model, empty,
-        0.0f, 0.0f, 1.0f,
-        (float)degreesToRadians(gameObject->rotation)
+
+    mat4x4 XYZ[3]; // Rotation
+    memset(XYZ, 0, sizeof(XYZ));
+    mat4x4_identity(XYZ[0]);
+    mat4x4_identity(XYZ[1]);
+    mat4x4_identity(XYZ[2]);
+
+    mat4x4_rotate_X(
+        XYZ[0],
+        empty,
+        (float)degreesToRadians(gameObject->rotation[0])
+    );
+    mat4x4_rotate_Y(
+        XYZ[1],
+        empty,
+        (float)degreesToRadians(gameObject->rotation[1])
+    );
+    mat4x4_rotate_Z(
+        XYZ[2],
+        empty,
+        (float)degreesToRadians(gameObject->rotation[2])
+    );
+
+    mat4x4_mul(
+        XY,
+        XYZ[0],
+        XYZ[1]
+    );
+
+    mat4x4_mul(
+        model,
+        XY,
+        XYZ[2]
     );
 
     mat4x4 vp, mvp;
