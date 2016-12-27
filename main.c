@@ -10,6 +10,7 @@
 #include <assimp/cimport.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <assimp/vector3.h>
 
 #include <time.h>
 #include <stdio.h>
@@ -405,7 +406,7 @@ void destroyDescriptorSetLayout(struct Engine* engine);
 // INDEX BUFFER
 void createIndexBuffer(
     struct Engine* engine,
-    uint16_t* indices,
+    uint32_t* indices,
     uint32_t indexCount,
     VkBuffer* indexBuffer,
     VkDeviceMemory* indexBufferMemory
@@ -504,7 +505,7 @@ void EngineDestroyGameObject(struct Engine* self, struct GameObject* gameObject)
 
     self->gameObjectCount--;
 }
-void EngineCreateMesh(struct Engine* self, struct Vertex* vertices, uint32_t vertexCount, uint16_t* indices, uint32_t indexCount)
+void EngineCreateMesh(struct Engine* self, struct Vertex* vertices, uint32_t vertexCount, uint32_t* indices, uint32_t indexCount)
 {
     if (self->meshCount >= MAX_MESHES)
     {
@@ -556,7 +557,7 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     };
     uint32_t vertexCount = sizeof(vertices)/sizeof(vertices[0]);
 
-    uint16_t indices[] = {
+    uint32_t indices[] = {
         0, 1, 2, 2, 3, 0
     };
     uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
@@ -581,6 +582,7 @@ void EngineInit(struct Engine* self, GLFWwindow* window)
     createTextureImageView(self);
     createTextureSampler(self);
     loadModel(self, "assets/models/robot.dae");
+    //loadModel(self, "assets/models/chalet.dae");
     createUniformBuffer(self);
     createDescriptorPool(self);
     createDescriptorSet(self);
@@ -617,11 +619,13 @@ void EngineDestroy(struct Engine* self)
     destroyDescriptorPool(self);
     freeUniformBufferMemory(self);
     destroyUniformBuffer(self);
-    for (i=0; i<self->meshCount; i++)
+    uint32_t meshCount = self->meshCount;
+    for (i=0; i<meshCount; i++)
     {
         EngineDestroyMesh(self, &(self->meshes[i]));
     }
-    for (i=0; i<self->gameObjectCount; i++)
+    uint32_t gameObjectCount = self->gameObjectCount;
+    for (i=0; i<gameObjectCount; i++)
     {
         EngineDestroyGameObject(self, &(self->gameObjects[i]));
     }
@@ -685,7 +689,7 @@ static void keyCallback(
         };
         uint32_t vertexCount = sizeof(vertices)/sizeof(vertices[0]);
 
-        uint16_t indices[] = {
+        uint32_t indices[] = {
             0, 1, 2, 2, 3, 0
         };
         uint32_t indexCount = sizeof(indices)/sizeof(indices[0]);
@@ -2121,6 +2125,7 @@ VkFormat findSupportedFormat(struct Engine* engine, VkFormat* candidates, uint32
 void createTextureImage(struct Engine* engine)
 {
     char* imageSrc = "assets/textures/robot-color.png";
+    //char* imageSrc = "assets/textures/chalet.jpg";
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(
         imageSrc,
@@ -2503,10 +2508,10 @@ void loadModel(struct Engine* self, const char* path)
     const struct aiScene* scene;
     scene = aiImportFile(
         path,
-        aiProcess_CalcTangentSpace |
         aiProcess_Triangulate |
-        aiProcess_JoinIdenticalVertices |
-        aiProcess_SortByPType
+        aiProcess_GenSmoothNormals |
+        aiProcess_FlipUVs |
+        aiProcess_JoinIdenticalVertices
     );
 
     if (!scene)
@@ -2521,11 +2526,43 @@ void loadModel(struct Engine* self, const char* path)
         exit(-1);
     }
 
-    printf("%u vertices.\n", scene->mMeshes[0]->mNumVertices);
-    //uint32_t i;
-    //for (i=0; i<scene.mMeshes->
-    //EngineCreateMesh(self, vertices, vertexCount, indices, indexCount);
+    struct aiMesh* mesh = scene->mMeshes[0];
 
+    struct Vertex* vertices;
+    vertices = calloc(mesh->mNumVertices, sizeof(struct Vertex));
+    uint32_t vertexCount = 0;
+
+    uint32_t* indices;
+    indices = calloc(mesh->mNumFaces * 3, sizeof(*indices));
+    uint32_t indexCount = 0;
+
+    uint32_t i;
+    for (i=0; i<mesh->mNumVertices; i++)
+    {
+        vertices[vertexCount].position[0] = mesh->mVertices[i].x;
+        vertices[vertexCount].position[1] = mesh->mVertices[i].y;
+        vertices[vertexCount].position[2] = mesh->mVertices[i].z;
+        vertices[vertexCount].texCoord[0] = mesh->mTextureCoords[0][i].x;
+        vertices[vertexCount].texCoord[1] = mesh->mTextureCoords[0][i].y;
+        vertexCount++;
+    }
+
+    for (i=0; i<mesh->mNumFaces; i++)
+    {
+        struct aiFace* face = &(mesh->mFaces[i]);
+        assert(face->mNumIndices == 3);
+        indices[indexCount] = face->mIndices[0];
+        indexCount++;
+        indices[indexCount] = face->mIndices[1];
+        indexCount++;
+        indices[indexCount] = face->mIndices[2];
+        indexCount++;
+    }
+
+    EngineCreateMesh(self, vertices, vertexCount, indices, indexCount);
+
+    free(vertices);
+    free(indices);
     aiReleaseImport(scene);
 }
 
@@ -2723,7 +2760,7 @@ uint32_t findMemType(struct Engine* engine, uint32_t typeFilter, VkMemoryPropert
 }
 
 // INDEX BUFFER
-void createIndexBuffer(struct Engine* engine, uint16_t* indices, uint32_t indexCount, VkBuffer* indexBuffer, VkDeviceMemory* indexBufferMemory)
+void createIndexBuffer(struct Engine* engine, uint32_t* indices, uint32_t indexCount, VkBuffer* indexBuffer, VkDeviceMemory* indexBufferMemory)
 {
     VkDeviceSize bufferSize = sizeof(indices[0]) * indexCount;
     VkBuffer stagingBuffer;
@@ -2809,7 +2846,7 @@ void createUniformBuffer(struct Engine* engine)
 
 void updateUniformBuffer(struct Engine* engine)
 {
-    vec3 eye = {2.0f, 2.0f, 2.0f};
+    vec3 eye = {22.0f, 22.0f, 22.0f};
     vec3 center = {0.0f, 0.0f, 0.0f};
     vec3 up = {0.0f, 0.0f, 1.0f};
     mat4x4_look_at(engine->ubo.view, eye, center, up);
@@ -3036,7 +3073,7 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
         gameObject->commandBuffer,
         gameObject->mesh->indexBuffer,
         0,
-        VK_INDEX_TYPE_UINT16
+        VK_INDEX_TYPE_UINT32
     );
 
     vkCmdBindDescriptorSets(
@@ -3106,9 +3143,9 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
     renderPassInfo.renderArea.extent = engine->swapChainExtent;
 
     VkClearValue clearValues[2];
-    clearValues[0].color.float32[0] = 0.0f;
-    clearValues[0].color.float32[1] = 0.0f;
-    clearValues[0].color.float32[2] = 0.0f;
+    clearValues[0].color.float32[0] = 0.9f;
+    clearValues[0].color.float32[1] = 1.0f;
+    clearValues[0].color.float32[2] = 0.8f;
     clearValues[0].color.float32[3] = 1.0f;
     clearValues[1].depthStencil.depth = 1.0f;
     clearValues[1].depthStencil.stencil = 0;
