@@ -104,11 +104,15 @@ struct GameObject
     struct Mesh* mesh;
     vec3 rotation;
     vec3 position;
+    mat4x4 model;
     VkCommandBuffer commandBuffer;
 };
 
 struct Engine
 {
+    // Key callback
+    void (*keyCallback)(
+
     // Window
     GLFWwindow* window;
 
@@ -465,6 +469,9 @@ void EngineCreateGameObject(struct Engine* self, struct Mesh* mesh)
     // Set mesh of new game object
     self->gameObjects[self->gameObjectCount].mesh = mesh;
 
+    // Make identity matrix
+    mat4x4_identity(self->gameObjects[self->gameObjectCount].model);
+
     // Allocate command buffers
     VkCommandBufferAllocateInfo allocInfo;
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -669,43 +676,6 @@ static void keyCallback(
 {
     struct Engine* engine =
         (struct Engine*)glfwGetWindowUserPointer(window);
-
-    if (key == GLFW_KEY_W && action == GLFW_PRESS)
-    {
-        engine->gameObjects[0].rotation[0] += 15;
-        if (engine->gameObjects[0].rotation[0] > 360)
-            engine->gameObjects[0].rotation[0] = 0;
-    }
-    else if (key == GLFW_KEY_S && action == GLFW_PRESS)
-    {
-        engine->gameObjects[0].rotation[0] -= 15;
-        if (engine->gameObjects[0].rotation[0] < 0)
-            engine->gameObjects[0].rotation[0] = 360;
-    }
-    else if (key == GLFW_KEY_A && action == GLFW_PRESS)
-    {
-        engine->gameObjects[0].rotation[1] += 15;
-        if (engine->gameObjects[0].rotation[1] > 360)
-            engine->gameObjects[0].rotation[1] = 0;
-    }
-    else if (key == GLFW_KEY_D && action == GLFW_PRESS)
-    {
-        engine->gameObjects[0].rotation[1] -= 15;
-        if (engine->gameObjects[0].rotation[1] < 0)
-            engine->gameObjects[0].rotation[1] = 360;
-    }
-    else if (key == GLFW_KEY_Q && action == GLFW_PRESS)
-    {
-        engine->gameObjects[0].rotation[2] += 15;
-        if (engine->gameObjects[0].rotation[2] > 360)
-            engine->gameObjects[0].rotation[2] = 0;
-    }
-    else if (key == GLFW_KEY_E && action == GLFW_PRESS)
-    {
-        engine->gameObjects[0].rotation[2] -= 15;
-        if (engine->gameObjects[0].rotation[2] < 0)
-            engine->gameObjects[0].rotation[2] = 360;
-    }
 }
 
 int main() {
@@ -3066,49 +3036,9 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
         NULL
     );
 
-    mat4x4 empty, model, XY;
-    memset(&empty, 0, sizeof(empty));
-    memset(&model, 0, sizeof(model));
-    mat4x4_identity(empty);
-    mat4x4_identity(model);
-
-    mat4x4 XYZ[3]; // Rotation
-    memset(XYZ, 0, sizeof(XYZ));
-    mat4x4_identity(XYZ[0]);
-    mat4x4_identity(XYZ[1]);
-    mat4x4_identity(XYZ[2]);
-
-    mat4x4_rotate_X(
-        XYZ[0],
-        empty,
-        (float)degreesToRadians(gameObject->rotation[0])
-    );
-    mat4x4_rotate_Y(
-        XYZ[1],
-        empty,
-        (float)degreesToRadians(gameObject->rotation[1])
-    );
-    mat4x4_rotate_Z(
-        XYZ[2],
-        empty,
-        (float)degreesToRadians(gameObject->rotation[2])
-    );
-
-    mat4x4_mul(
-        XY,
-        XYZ[0],
-        XYZ[1]
-    );
-
-    mat4x4_mul(
-        model,
-        XY,
-        XYZ[2]
-    );
-
     mat4x4 vp, mvp;
     mat4x4_mul(vp, engine->ubo.proj, engine->ubo.view);
-    mat4x4_mul(mvp, vp, model);
+    mat4x4_mul(mvp, vp, gameObject->model);
     vkCmdPushConstants(
         gameObject->commandBuffer,
         engine->pipelineLayout,
