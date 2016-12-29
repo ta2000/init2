@@ -184,6 +184,7 @@ void EngineInit(struct Engine* self);
 void EngineUpdate(struct Engine* self);
 void EngineRun(struct Engine* self);
 void EngineDestroy(struct Engine* self);
+void EngineLoadModel(struct Engine* self, const char* path);
 
 // GLFW
 void onWindowResized(
@@ -351,9 +352,6 @@ void createImageView(
 // TEXTURE SAMPLER
 void createTextureSampler(struct Engine* engine);
 void destroyTextureSampler(struct Engine* engine);
-
-// LOAD MODEL
-void loadModel(struct Engine* self, const char* path);
 
 // VERTEX BUFFER
 void createVertexBuffer(

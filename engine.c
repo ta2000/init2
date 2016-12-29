@@ -165,12 +165,6 @@ void EngineInit(struct Engine* self)
     createTextureImage(self);
     createTextureImageView(self);
     createTextureSampler(self);
-    loadModel(self, "assets/models/robot.dae");
-    EngineCreateGameObject(
-        self,
-        &(self->meshes[0])
-    );
-    //loadModel(self, "assets/models/chalet.dae");
     createUniformBuffer(self);
     createDescriptorPool(self);
     createDescriptorSet(self);
@@ -237,6 +231,68 @@ void EngineDestroy(struct Engine* self)
 
     glfwDestroyWindow(self->window);
     glfwTerminate();
+}
+void EngineLoadModel(struct Engine* self, const char* path)
+{
+    const struct aiScene* scene;
+    scene = aiImportFile(
+        path,
+        aiProcess_Triangulate |
+        aiProcess_GenSmoothNormals |
+        aiProcess_FlipUVs |
+        aiProcess_JoinIdenticalVertices
+    );
+
+    if (!scene)
+    {
+        fprintf(stderr, "Failed to load model: %s\n", path);
+        exit(-1);
+    }
+
+    if (scene->mNumMeshes != 1)
+    {
+        fprintf(stderr, "Not one mesh in model %s\n", path);
+        exit(-1);
+    }
+
+    struct aiMesh* mesh = scene->mMeshes[0];
+
+    struct Vertex* vertices;
+    vertices = calloc(mesh->mNumVertices, sizeof(struct Vertex));
+    uint32_t vertexCount = 0;
+
+    uint32_t* indices;
+    indices = calloc(mesh->mNumFaces * 3, sizeof(*indices));
+    uint32_t indexCount = 0;
+
+    uint32_t i;
+    for (i=0; i<mesh->mNumVertices; i++)
+    {
+        vertices[vertexCount].position[0] = mesh->mVertices[i].x;
+        vertices[vertexCount].position[1] = mesh->mVertices[i].y;
+        vertices[vertexCount].position[2] = mesh->mVertices[i].z;
+        vertices[vertexCount].texCoord[0] = mesh->mTextureCoords[0][i].x;
+        vertices[vertexCount].texCoord[1] = mesh->mTextureCoords[0][i].y;
+        vertexCount++;
+    }
+
+    for (i=0; i<mesh->mNumFaces; i++)
+    {
+        struct aiFace* face = &(mesh->mFaces[i]);
+        assert(face->mNumIndices == 3);
+        indices[indexCount] = face->mIndices[0];
+        indexCount++;
+        indices[indexCount] = face->mIndices[1];
+        indexCount++;
+        indices[indexCount] = face->mIndices[2];
+        indexCount++;
+    }
+
+    EngineCreateMesh(self, vertices, vertexCount, indices, indexCount);
+
+    free(vertices);
+    free(indices);
+    aiReleaseImport(scene);
 }
 
 // GLFW
@@ -1666,7 +1722,6 @@ VkFormat findSupportedFormat(struct Engine* engine, VkFormat* candidates, uint32
 void createTextureImage(struct Engine* engine)
 {
     char* imageSrc = "assets/textures/robot-texture.png";
-    //char* imageSrc = "assets/textures/chalet.jpg";
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(
         imageSrc,
@@ -2041,70 +2096,6 @@ void destroyTextureSampler(struct Engine* engine)
         engine->textureSampler,
         NULL
     );
-}
-
-// LOAD MODEL
-void loadModel(struct Engine* self, const char* path)
-{
-    const struct aiScene* scene;
-    scene = aiImportFile(
-        path,
-        aiProcess_Triangulate |
-        aiProcess_GenSmoothNormals |
-        aiProcess_FlipUVs |
-        aiProcess_JoinIdenticalVertices
-    );
-
-    if (!scene)
-    {
-        fprintf(stderr, "Failed to load model: %s\n", path);
-        exit(-1);
-    }
-
-    if (scene->mNumMeshes != 1)
-    {
-        fprintf(stderr, "Not one mesh in model %s\n", path);
-        exit(-1);
-    }
-
-    struct aiMesh* mesh = scene->mMeshes[0];
-
-    struct Vertex* vertices;
-    vertices = calloc(mesh->mNumVertices, sizeof(struct Vertex));
-    uint32_t vertexCount = 0;
-
-    uint32_t* indices;
-    indices = calloc(mesh->mNumFaces * 3, sizeof(*indices));
-    uint32_t indexCount = 0;
-
-    uint32_t i;
-    for (i=0; i<mesh->mNumVertices; i++)
-    {
-        vertices[vertexCount].position[0] = mesh->mVertices[i].x;
-        vertices[vertexCount].position[1] = mesh->mVertices[i].y;
-        vertices[vertexCount].position[2] = mesh->mVertices[i].z;
-        vertices[vertexCount].texCoord[0] = mesh->mTextureCoords[0][i].x;
-        vertices[vertexCount].texCoord[1] = mesh->mTextureCoords[0][i].y;
-        vertexCount++;
-    }
-
-    for (i=0; i<mesh->mNumFaces; i++)
-    {
-        struct aiFace* face = &(mesh->mFaces[i]);
-        assert(face->mNumIndices == 3);
-        indices[indexCount] = face->mIndices[0];
-        indexCount++;
-        indices[indexCount] = face->mIndices[1];
-        indexCount++;
-        indices[indexCount] = face->mIndices[2];
-        indexCount++;
-    }
-
-    EngineCreateMesh(self, vertices, vertexCount, indices, indexCount);
-
-    free(vertices);
-    free(indices);
-    aiReleaseImport(scene);
 }
 
 // VERTEX BUFFER

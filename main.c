@@ -2,16 +2,12 @@
 #include <stdlib.h>
 
 #include "engine.h"
+#include "game.h"
 
 int main() {
-    struct Engine* engine = calloc(1, sizeof(*engine));
-
-    EngineInit(engine);
-    EngineRun(engine);
-    EngineDestroy(engine);
-
-    free(engine);
+    struct Game* game = calloc(1, sizeof(*game));
+    GameInit(game);
+    free(game);
 
     return 0;
 }
-
