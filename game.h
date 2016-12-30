@@ -10,6 +10,12 @@ void GameInit(struct Game* game);
 void GameLoop(struct Game* game);
 void GameUpdate(struct Game* game);
 void GameRender(struct Game* game);
+void GameProcessInput(struct Game* game);
+void GameKeyPress(
+    struct Game* game,
+    int key,
+    int action
+);
 void GameCreateMesh(
     struct Game* game,
     float* vertices,
@@ -17,7 +23,7 @@ void GameCreateMesh(
 );
 float* GameCreateTerrain(
     struct Game* game,
-    int size
+    uint32_t size
 );
 
 #endif

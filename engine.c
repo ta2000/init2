@@ -174,6 +174,11 @@ void EngineInit(struct Engine* self)
 }
 void EngineUpdate(struct Engine* self)
 {
+    if (self->gameLoopCallback)
+    {
+        (*self->gameLoopCallback)(self->userPointer);
+    }
+
     generateDrawCommands(self, self->currentBuffer);
     updateUniformBuffer(self);
     drawFrame(self);
@@ -317,7 +322,7 @@ void keyCallback(
 
     if (engine->keyCallback)
     {
-        (*engine->keyCallback)(key, action);
+        (*engine->keyCallback)(engine->userPointer, key, action);
     }
 }
 
@@ -2378,8 +2383,16 @@ void createUniformBuffer(struct Engine* engine)
 
 void updateUniformBuffer(struct Engine* engine)
 {
-    vec3 eye = {12.0f, 12.0f, 12.0f};
-    vec3 center = {0.0f, 0.0f, 0.0f};
+    vec3 eye = {
+        engine->camera.x,
+        engine->camera.y,
+        engine->camera.z
+    };
+    vec3 center = {
+        engine->camera.xTarget,
+        engine->camera.yTarget,
+        engine->camera.zTarget
+    };
     vec3 up = {0.0f, 0.0f, 1.0f};
     mat4x4_look_at(engine->ubo.view, eye, center, up);
 

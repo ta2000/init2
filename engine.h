@@ -62,10 +62,24 @@ struct GameObject
     VkCommandBuffer commandBuffer;
 };
 
+struct Camera
+{
+    float x, y, z;
+    float xTarget, yTarget, zTarget;
+    float angle;
+};
+
 struct Engine
 {
     // Key callback
-    void (*keyCallback)(int, int);
+    void (*keyCallback)(void*, int, int);
+    void (*gameLoopCallback)();
+
+    // Camera
+    struct Camera camera;
+
+    // User pointer
+    void* userPointer;
 
     // Window
     GLFWwindow* window;
