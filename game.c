@@ -22,9 +22,9 @@ void GameInit(struct Game* game)
     game->engine->camera.z = 5.0f;
     game->engine->camera.angle = 0.0f;
 
-    uint32_t terrainSize = 3;
+    uint32_t terrainSize = 4;
     float* terrainMesh = GameCreateTerrain(game, terrainSize);
-    GameCreateMesh(game, terrainMesh, terrainSize * terrainSize);
+    GameCreateMesh(game, terrainMesh, 4 * terrainSize * terrainSize);
     free(terrainMesh);
 
     EngineLoadModel(engine, "assets/models/robot.dae");
@@ -104,15 +104,15 @@ void GameKeyPress(struct Game* game, int key, int action)
     }
 }
 
+// Only works with quads for now (%6)
 void GameCreateMesh(struct Game* game, float* points, uint32_t numPoints)
 {
-    printf("%d\n", numPoints);
-
     struct Vertex* vertices;
     vertices = calloc(numPoints, sizeof(*vertices));
 
     uint32_t* indices;
-    indices = calloc(numPoints, sizeof(*indices));
+    indices = calloc(2 * numPoints, sizeof(*indices));
+    uint32_t indexCount = 0;
 
     uint32_t i;
     for (i=0; i<numPoints; i++)
@@ -126,16 +126,38 @@ void GameCreateMesh(struct Game* game, float* points, uint32_t numPoints)
         vertices[i].texCoord[0] = 0.0f;
         vertices[i].texCoord[1] = 0.0f;
 
-        indices[i] = i;
+        indices[indexCount] = i;
+        indexCount++;
 
-        printf("{ %f, %f, %f }\n",
+        // Duplicate third vertex
+        if (indexCount % 3 == 0 && indexCount % 6 != 0)
+        {
+            indices[indexCount] = i;
+            indexCount++;
+        }
+        // Close loop
+        else if ((indexCount+1) % 6 == 0)
+        {
+            indices[indexCount] = i-3;
+            indexCount++;
+        }
+
+        /*printf("{ %f, %f, %f }\n",
             vertices[i].position[0],
             vertices[i].position[1],
             vertices[i].position[2]
         );
+        if ((i+1)%4 == 0)
+            printf("\n");*/
     }
 
-    EngineCreateMesh(game->engine, vertices, i, indices, i);
+    /*uint32_t tmp;
+    for (tmp=0; tmp<indexCount; tmp++)
+    {
+        printf("%d, ", indices[tmp]);
+    } printf("\n");*/
+
+    EngineCreateMesh(game->engine, vertices, i, indices, indexCount);
     EngineCreateGameObject(game->engine, &(game->engine->meshes[0]));
 
     free(indices);
@@ -145,12 +167,37 @@ void GameCreateMesh(struct Game* game, float* points, uint32_t numPoints)
 float* GameCreateTerrain(struct Game* game, uint32_t size)
 {
     float* terrain;
-    terrain = calloc((3*size) * (3*size), sizeof(vec3));
+    // Rect = 4 points
+    // Point = 3 floats
+    terrain = calloc((3 * 4) * (size * size), sizeof(*terrain));
 
-    uint32_t i;
-    for (i=0; i< (3*size) * (3*size); i++)
+    float square[] = {
+        0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f,
+        1.0f, 1.0f, 0.0f,
+        0.0f, 1.0f, 0.0f
+    };
+
+    int offset = 1;
+    int tileSize = 3;
+
+    uint32_t i, j;
+    // (size * size) tiles
+    for (i=0; i<12*size*size; i+=12)
     {
-        terrain[i] = 8 * (float)rand()/(float)RAND_MAX;
+        // 4 points
+        for (j=0; j<4; j++)
+        {
+            // 3 coordinates
+            terrain[i + (j*3) + 0] =
+                tileSize * square[j * 3 + 0] + tileSize * (offset*(i/12)); // X
+
+            terrain[i + (j*3) + 1] =
+                tileSize * square[j * 3 + 1] + tileSize * (offset*(i/12)); // Y
+
+            terrain[i + (j*3) + 2] =
+                square[j * 3 + 2]; // Z
+        }
     }
 
     return terrain;

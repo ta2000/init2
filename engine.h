@@ -44,6 +44,16 @@ struct SwapChainSupportDetails
 };
 void freeSwapChainSupportDetails(struct SwapChainSupportDetails* details);
 
+struct TextureImage
+{
+    VkImage image;
+    VkDeviceMemory memory;
+    VkImageView view;
+    VkSampler sampler;
+    uint32_t width, height;
+    VkDescriptorImageInfo info;
+};
+
 struct Mesh
 {
     VkBuffer vertexBuffer;
@@ -137,12 +147,8 @@ struct Engine
     VkImageView depthImageView;
 
     // Texture image
-    VkImage textureImage;
-    VkDeviceMemory textureImageMemory;
-    VkImageView textureImageView;
 
     // Sampler
-    VkSampler textureSampler;
 
     // Game objects
     struct GameObject gameObjects[MAX_OBJECTS];
