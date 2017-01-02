@@ -22,13 +22,18 @@ void GameInit(struct Game* game)
     game->engine->camera.z = 5.0f;
     game->engine->camera.angle = 0.0f;
 
-    uint32_t terrainSize = 4;
+    /*uint32_t terrainSize = 4;
     float* terrainMesh = GameCreateTerrain(game, terrainSize);
     GameCreateMesh(game, terrainMesh, 4 * terrainSize * terrainSize);
-    free(terrainMesh);
+    free(terrainMesh);*/
 
-    EngineLoadModel(engine, "assets/models/robot.dae");
-    EngineCreateGameObject(engine, &(engine->meshes[1]));
+    /*EngineCreateDescriptor(
+        &(game->engine),
+        &(game->engine->meshes[0].descriptor),
+        "assets/textures/robot-texture.png"
+    );
+    EngineLoadModel(&(game->engine), "assets/models/robot.dae");
+    EngineCreateGameObject(&(game->engine), &(game->engine->meshes[0]));*/
 
     EngineRun(engine);
     EngineDestroy(engine);
@@ -84,8 +89,10 @@ void GameProcessInput(struct Game* game)
     camera->zTarget = camera->z;
 }
 
-void GameKeyPress(struct Game* game, int key, int action)
+void GameKeyPress(void* userPointer, int key, int action)
 {
+    struct Game* game = (struct Game*)userPointer;
+
     if (key == GLFW_KEY_A)
     {
         keysPressed[0] = action;
@@ -157,8 +164,8 @@ void GameCreateMesh(struct Game* game, float* points, uint32_t numPoints)
         printf("%d, ", indices[tmp]);
     } printf("\n");*/
 
-    EngineCreateMesh(game->engine, vertices, i, indices, indexCount);
-    EngineCreateGameObject(game->engine, &(game->engine->meshes[0]));
+    //EngineCreateMesh(game->engine, vertices, i, indices, indexCount);
+    //EngineCreateGameObject(game->engine, &(game->engine->meshes[0]));
 
     free(indices);
     free(vertices);

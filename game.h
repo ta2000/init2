@@ -12,7 +12,7 @@ void GameUpdate(struct Game* game);
 void GameRender(struct Game* game);
 void GameProcessInput(struct Game* game);
 void GameKeyPress(
-    struct Game* game,
+    void* userPointer, // Passed from engine
     int key,
     int action
 );

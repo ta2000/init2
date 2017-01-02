@@ -130,112 +130,47 @@ void EngineDestroyMesh(struct Engine* self, struct Mesh* mesh)
     destroyIndexBuffer(self, &(mesh->indexBuffer));
     freeVertexBufferMemory(self, &(mesh->vertexMemory));
     destroyVertexBuffer(self, &(mesh->vertexBuffer));
+    EngineDestroyDescriptor(self, &(mesh->descriptor));
 }
-void EngineInit(struct Engine* self)
+void EngineCreateDescriptor(struct Engine* self, struct Descriptor* descriptor, const char* textureSrc)
 {
-    // Init GLFW
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(
-        WIDTH, HEIGHT,
-        "Vulkan Window",
-        NULL,
-        NULL
+    createTextureImage(
+        self,
+        textureSrc,
+        &(descriptor->textureImage.image),
+        &(descriptor->textureImage.memory)
     );
-    glfwSetWindowUserPointer(window, self);
-    glfwSetWindowSizeCallback(window, onWindowResized);
-    glfwSetKeyCallback(window, keyCallback);
-
-    self->window = window;
-
-    createInstance(self);
-    setupDebugCallback(self);
-    createSurface(self);
-    getPhysicalDevice(self);
-    createLogicalDevice(self);
-    createSwapChain(self);
-    createImageViews(self);
-    findDepthFormat(self);
-    createRenderPass(self);
-    createDescriptorSetLayout(self);
-    createGraphicsPipeline(self);
-    createCommandPool(self);
-    createDepthResources(self);
-    createFramebuffers(self);
-    createTextureImage(self);
-    createTextureImageView(self);
-    createTextureSampler(self);
-    createUniformBuffer(self);
-    createDescriptorPool(self);
-    createDescriptorSet(self);
-    createCommandBuffers(self);
-    createFence(self);
-    createSemaphores(self);
+    createTextureImageView(
+        self,
+        &(descriptor->textureImage.image),
+        &(descriptor->textureImage.imageView)
+    );
+    createTextureSampler(
+        self,
+        &(descriptor->textureImage.sampler)
+    );
+    createDescriptorSet(
+        self,
+        &(descriptor->descriptorSet),
+        &(descriptor->textureImage.sampler),
+        &(descriptor->textureImage.imageView)
+    );
 }
-void EngineUpdate(struct Engine* self)
+void EngineDestroyDescriptor(struct Engine* self, struct Descriptor* descriptor)
 {
-    if (self->gameLoopCallback)
-    {
-        (*self->gameLoopCallback)(self->userPointer);
-    }
-
-    generateDrawCommands(self, self->currentBuffer);
-    updateUniformBuffer(self);
-    drawFrame(self);
-
-    self->currentBuffer++;
-    self->currentBuffer %= 3;
-}
-void EngineRun(struct Engine* self)
-{
-    // GLFW main loop
-    while(!glfwWindowShouldClose(self->window)) {
-        glfwPollEvents();
-        EngineUpdate(self);
-    }
-
-    vkDeviceWaitIdle(self->device);
-}
-void EngineDestroy(struct Engine* self)
-{
-    uint32_t i;
-
-    destroySemaphores(self);
-    destroyFence(self);
-    freeCommandBuffers(self);
-    destroyDescriptorPool(self);
-    freeUniformBufferMemory(self);
-    destroyUniformBuffer(self);
-    uint32_t meshCount = self->meshCount;
-    for (i=0; i<meshCount; i++)
-    {
-        EngineDestroyMesh(self, &(self->meshes[i]));
-    }
-    uint32_t gameObjectCount = self->gameObjectCount;
-    for (i=0; i<gameObjectCount; i++)
-    {
-        EngineDestroyGameObject(self, &(self->gameObjects[i]));
-    }
-    destroyTextureSampler(self);
-    destroyTextureImageView(self);
-    destroyTextureImage(self);
-    destroyFramebuffers(self);
-    destroyDepthResources(self);
-    destroyCommandPool(self);
-    freeExtensions(self);
-    destroyDescriptorSetLayout(self);
-    destroyGraphicsPipeline(self);
-    destroyRenderPass(self);
-    destroyImageViews(self);
-    destroySwapChain(self);
-    destroyLogicalDevice(self);
-    destroySurface(self);
-    if (validationEnabled)
-        destroyDebugCallback(self);
-    destroyInstance(self);
-
-    glfwDestroyWindow(self->window);
-    glfwTerminate();
+    destroyTextureSampler(
+        self,
+        &(descriptor->textureImage.sampler)
+    );
+    destroyTextureImageView(
+        self,
+        &(descriptor->textureImage.imageView)
+    );
+    destroyTextureImage(
+        self,
+        &(descriptor->textureImage.image),
+        &(descriptor->textureImage.memory)
+    );
 }
 void EngineLoadModel(struct Engine* self, const char* path)
 {
@@ -293,11 +228,128 @@ void EngineLoadModel(struct Engine* self, const char* path)
         indexCount++;
     }
 
-    EngineCreateMesh(self, vertices, vertexCount, indices, indexCount);
+    EngineCreateMesh(
+        self,
+        vertices,
+        vertexCount,
+        indices,
+        indexCount
+    );
 
     free(vertices);
     free(indices);
     aiReleaseImport(scene);
+}
+void EngineInit(struct Engine* self)
+{
+    // Init GLFW
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    GLFWwindow* window = glfwCreateWindow(
+        WIDTH, HEIGHT,
+        "Vulkan Window",
+        NULL,
+        NULL
+    );
+    glfwSetWindowUserPointer(window, self);
+    glfwSetWindowSizeCallback(window, onWindowResized);
+    glfwSetKeyCallback(window, keyCallback);
+
+    self->window = window;
+
+    createInstance(self);
+    setupDebugCallback(self);
+    createSurface(self);
+    getPhysicalDevice(self);
+    createLogicalDevice(self);
+    createSwapChain(self);
+    createImageViews(self);
+    findDepthFormat(self);
+    createRenderPass(self);
+    createDescriptorSetLayout(self);
+    createGraphicsPipeline(self);
+    createCommandPool(self);
+    createDepthResources(self);
+    createFramebuffers(self);
+    createUniformBuffer(self);
+    createDescriptorPool(self);
+    //self->meshes[0].descriptor = *(EngineCreateDescriptor(self, "assets/textures/robot-texture.png"));
+    createCommandBuffers(self);
+    createFence(self);
+    createSemaphores(self);
+
+    EngineCreateDescriptor(
+        self,
+        &(self->meshes[0].descriptor),
+        "assets/textures/robot-texture.png"
+    );
+    EngineLoadModel(
+        self,
+        "assets/models/robot.dae"
+    );
+    EngineCreateGameObject(self, &(self->meshes[0]));
+}
+void EngineUpdate(struct Engine* self)
+{
+    if (self->gameLoopCallback)
+    {
+        (*self->gameLoopCallback)(self->userPointer);
+    }
+
+    generateDrawCommands(self, self->currentBuffer);
+    updateUniformBuffer(self);
+    drawFrame(self);
+
+    self->currentBuffer++;
+    self->currentBuffer %= 3;
+}
+void EngineRun(struct Engine* self)
+{
+    // GLFW main loop
+    while(!glfwWindowShouldClose(self->window)) {
+        glfwPollEvents();
+        EngineUpdate(self);
+    }
+
+    vkDeviceWaitIdle(self->device);
+}
+void EngineDestroy(struct Engine* self)
+{
+    uint32_t i;
+
+    destroySemaphores(self);
+    destroyFence(self);
+    freeCommandBuffers(self);
+    destroyDescriptorPool(self);
+    freeUniformBufferMemory(self);
+    destroyUniformBuffer(self);
+    uint32_t meshCount = self->meshCount;
+    for (i=0; i<meshCount; i++)
+    {
+        EngineDestroyMesh(self, &(self->meshes[i]));
+    }
+    uint32_t gameObjectCount = self->gameObjectCount;
+    for (i=0; i<gameObjectCount; i++)
+    {
+        EngineDestroyGameObject(self, &(self->gameObjects[i]));
+    }
+    destroyFramebuffers(self);
+    destroyDepthResources(self);
+    destroyCommandPool(self);
+    freeExtensions(self);
+    destroyDescriptorSetLayout(self);
+    destroyGraphicsPipeline(self);
+    destroyRenderPass(self);
+    destroyImageViews(self);
+    destroySwapChain(self);
+    destroyLogicalDevice(self);
+    destroySurface(self);
+    if (validationEnabled)
+        destroyDebugCallback(self);
+    destroyInstance(self);
+
+    glfwDestroyWindow(self->window);
+    glfwTerminate();
 }
 
 // GLFW
@@ -1724,12 +1776,11 @@ VkFormat findSupportedFormat(struct Engine* engine, VkFormat* candidates, uint32
 }
 
 // TEXTURE IMAGE
-void createTextureImage(struct Engine* engine)
+void createTextureImage(struct Engine* engine, const char* textureSrc, VkImage* textureImage, VkDeviceMemory* textureImageMemory)
 {
-    char* imageSrc = "assets/textures/robot-texture.png";
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(
-        imageSrc,
+        textureSrc,
         &texWidth,
         &texHeight,
         &texChannels,
@@ -1739,7 +1790,7 @@ void createTextureImage(struct Engine* engine)
 
     if (!pixels)
     {
-        fprintf(stderr, "stb_image failed to load resource %s\n", imageSrc);
+        fprintf(stderr, "stb_image failed to load resource %s\n", textureSrc);
         exit(-1);
     }
 
@@ -1774,8 +1825,8 @@ void createTextureImage(struct Engine* engine)
         VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        &(engine->textureImage),
-        &(engine->textureImageMemory)
+        textureImage,
+        textureImageMemory
     );
 
     transitionImageLayout(
@@ -1787,16 +1838,16 @@ void createTextureImage(struct Engine* engine)
     );
     transitionImageLayout(
         engine,
-        engine->textureImage,
+        *textureImage,
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_LAYOUT_PREINITIALIZED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     );
-    copyImage(engine, stagingImage, engine->textureImage, texWidth, texHeight);
+    copyImage(engine, stagingImage, *textureImage, texWidth, texHeight);
 
     transitionImageLayout(
         engine,
-        engine->textureImage,
+        *textureImage,
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
@@ -1815,17 +1866,17 @@ void createTextureImage(struct Engine* engine)
     );
 }
 
-void destroyTextureImage(struct Engine* engine)
+void destroyTextureImage(struct Engine* engine, VkImage* textureImage, VkDeviceMemory* textureImageMemory)
 {
     vkDestroyImage(
         engine->device,
-        engine->textureImage,
+        *textureImage,
         NULL
     );
 
     vkFreeMemory(
         engine->device,
-        engine->textureImageMemory,
+        *textureImageMemory,
         NULL
     );
 }
@@ -2008,20 +2059,20 @@ void copyImage(struct Engine* engine, VkImage src, VkImage dst, uint32_t width, 
 }
 
 // TEXTURE IMAGE VIEW
-void createTextureImageView(struct Engine* engine)
+void createTextureImageView(struct Engine* engine, VkImage* textureImage, VkImageView* textureImageView)
 {
     createImageView(
         engine,
-        engine->textureImage,
+        *textureImage,
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_ASPECT_COLOR_BIT,
-        &(engine->textureImageView)
+        textureImageView
     );
 }
 
-void destroyTextureImageView(struct Engine* engine)
+void destroyTextureImageView(struct Engine* engine, VkImageView* textureImageView)
 {
-    vkDestroyImageView(engine->device, engine->textureImageView, NULL);
+    vkDestroyImageView(engine->device, *textureImageView, NULL);
 }
 
 void createImageView(struct Engine* engine, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView* imageView)
@@ -2058,7 +2109,7 @@ void createImageView(struct Engine* engine, VkImage image, VkFormat format, VkIm
 }
 
 // TEXTURE SAMPLER
-void createTextureSampler(struct Engine* engine)
+void createTextureSampler(struct Engine* engine, VkSampler* textureSampler)
 {
     VkSamplerCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -2085,7 +2136,7 @@ void createTextureSampler(struct Engine* engine)
         engine->device,
         &createInfo,
         NULL,
-        &(engine->textureSampler)
+        textureSampler
     );
     if (result != VK_SUCCESS)
     {
@@ -2094,11 +2145,11 @@ void createTextureSampler(struct Engine* engine)
     }
 }
 
-void destroyTextureSampler(struct Engine* engine)
+void destroyTextureSampler(struct Engine* engine, VkSampler* textureSampler)
 {
     vkDestroySampler(
         engine->device,
-        engine->textureSampler,
+        *textureSampler,
         NULL
     );
 }
@@ -2475,7 +2526,7 @@ void destroyDescriptorPool(struct Engine* engine)
 }
 
 // DESCRIPTOR SET
-void createDescriptorSet(struct Engine* engine)
+void createDescriptorSet(struct Engine* engine, VkDescriptorSet* descriptorSet, VkSampler* textureSampler, VkImageView* textureImageView)
 {
     VkDescriptorSetLayout layouts[] = {engine->descriptorSetLayout};
 
@@ -2490,7 +2541,7 @@ void createDescriptorSet(struct Engine* engine)
     result = vkAllocateDescriptorSets(
         engine->device,
         &allocInfo,
-        &(engine->descriptorSet)
+        descriptorSet
     );
     if (result != VK_SUCCESS)
     {
@@ -2504,14 +2555,14 @@ void createDescriptorSet(struct Engine* engine)
     bufferInfo.range = sizeof(struct UniformBufferObject);
 
 	VkDescriptorImageInfo imageInfo;
-    imageInfo.sampler = engine->textureSampler;
-    imageInfo.imageView = engine->textureImageView;
+    imageInfo.sampler = *textureSampler;
+    imageInfo.imageView = *textureImageView;
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     VkWriteDescriptorSet descriptorWrites[2];
     descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[0].pNext = NULL;
-    descriptorWrites[0].dstSet = engine->descriptorSet;
+    descriptorWrites[0].dstSet = *descriptorSet;
     descriptorWrites[0].dstBinding = 0;
     descriptorWrites[0].dstArrayElement = 0;
     descriptorWrites[0].descriptorCount = 1;
@@ -2523,7 +2574,7 @@ void createDescriptorSet(struct Engine* engine)
 
     descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[1].pNext = NULL;
-    descriptorWrites[1].dstSet = engine->descriptorSet;
+    descriptorWrites[1].dstSet = *descriptorSet;
     descriptorWrites[1].dstBinding = 1;
     descriptorWrites[1].dstArrayElement = 0;
     descriptorWrites[1].descriptorCount = 1;
@@ -2605,6 +2656,7 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
         engine->graphicsPipeline
     );
 
+    // VBO
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(
         gameObject->commandBuffer,
@@ -2614,6 +2666,7 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
         offsets
     );
 
+    // IBO
     vkCmdBindIndexBuffer(
         gameObject->commandBuffer,
         gameObject->mesh->indexBuffer,
@@ -2621,17 +2674,19 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
         VK_INDEX_TYPE_UINT32
     );
 
+    // Texture
     vkCmdBindDescriptorSets(
         gameObject->commandBuffer,
         VK_PIPELINE_BIND_POINT_GRAPHICS,
         engine->pipelineLayout,
         0,
         1,
-        &(engine->descriptorSet),
+        &(gameObject->mesh->descriptor.descriptorSet),
         0,
         NULL
     );
 
+    // Transform
     mat4x4 vp, mvp;
     mat4x4_mul(vp, engine->ubo.proj, engine->ubo.view);
     mat4x4_mul(mvp, vp, gameObject->model);
@@ -2644,6 +2699,7 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
         &mvp
     );
 
+    // Draw
     vkCmdDrawIndexed(
         gameObject->commandBuffer,
         gameObject->mesh->indexCount,

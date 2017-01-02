@@ -48,10 +48,16 @@ struct TextureImage
 {
     VkImage image;
     VkDeviceMemory memory;
-    VkImageView view;
+    VkImageView imageView;
     VkSampler sampler;
     uint32_t width, height;
     VkDescriptorImageInfo info;
+};
+
+struct Descriptor
+{
+    struct TextureImage textureImage;
+    VkDescriptorSet descriptorSet;
 };
 
 struct Mesh
@@ -61,6 +67,7 @@ struct Mesh
     uint32_t indexCount;
     VkBuffer indexBuffer;
     VkDeviceMemory indexMemory;
+    struct Descriptor descriptor;
 };
 
 struct GameObject
@@ -146,10 +153,6 @@ struct Engine
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
 
-    // Texture image
-
-    // Sampler
-
     // Game objects
     struct GameObject gameObjects[MAX_OBJECTS];
     uint32_t gameObjectCount;
@@ -165,10 +168,9 @@ struct Engine
     VkDeviceMemory uniformBufferMemory;
     struct UniformBufferObject ubo;
 
-    // Descriptor pool/set
-    VkDescriptorSetLayout descriptorSetLayout;
-    VkDescriptorSet descriptorSet;
+    // Descriptor pool/set layout
     VkDescriptorPool descriptorPool;
+    VkDescriptorSetLayout descriptorSetLayout;
 
     // Command buffers
     VkCommandBuffer* commandBuffers;
@@ -200,11 +202,23 @@ void EngineDestroyMesh(
     struct Engine* self,
     struct Mesh* mesh
 );
+void EngineCreateDescriptor(
+    struct Engine* self,
+    struct Descriptor* descriptor,
+    const char* textureSrc
+);
+void EngineDestroyDescriptor(
+    struct Engine* self,
+    struct Descriptor* descriptor
+);
+void EngineLoadModel(
+    struct Engine* self,
+    const char* path
+);
 void EngineInit(struct Engine* self);
 void EngineUpdate(struct Engine* self);
 void EngineRun(struct Engine* self);
 void EngineDestroy(struct Engine* self);
-void EngineLoadModel(struct Engine* self, const char* path);
 
 // GLFW
 void onWindowResized(
@@ -330,8 +344,17 @@ _Bool hasStencilComponent(VkFormat format);
 void destroyDepthResources(struct Engine* engine);
 
 // TEXTURE IMAGE
-void createTextureImage(struct Engine* engine);
-void destroyTextureImage(struct Engine* engine);
+void createTextureImage(
+    struct Engine* engine,
+    const char* textureSrc,
+    VkImage* textureImage,
+    VkDeviceMemory* textureImageMemory
+);
+void destroyTextureImage(
+    struct Engine* engine,
+    VkImage* textureImage,
+    VkDeviceMemory* textureImageMemory
+);
 void createImage(
     struct Engine* engine,
     VkFormat format,
@@ -359,8 +382,15 @@ void copyImage(
 );
 
 // TEXTURE IMAGE VIEW
-void createTextureImageView(struct Engine* engine);
-void destroyTextureImageView(struct Engine* engine);
+void createTextureImageView(
+    struct Engine* engine,
+    VkImage* textureImage,
+    VkImageView* textureImageView
+);
+void destroyTextureImageView(
+    struct Engine* engine,
+    VkImageView* textureImageView
+);
 void createImageView(
     struct Engine* engine,
     VkImage image,
@@ -370,8 +400,8 @@ void createImageView(
 );
 
 // TEXTURE SAMPLER
-void createTextureSampler(struct Engine* engine);
-void destroyTextureSampler(struct Engine* engine);
+void createTextureSampler(struct Engine* engine, VkSampler* textureSampler);
+void destroyTextureSampler(struct Engine* engine, VkSampler* textureSampler);
 
 // VERTEX BUFFER
 void createVertexBuffer(
@@ -440,7 +470,12 @@ void createDescriptorPool(struct Engine* engine);
 void destroyDescriptorPool(struct Engine* engine);
 
 // DESCRIPTOR SET
-void createDescriptorSet(struct Engine* engine);
+void createDescriptorSet(
+    struct Engine* engine,
+    VkDescriptorSet* descriptorSet,
+    VkSampler* textureSampler,
+    VkImageView* textureImageView
+);
 // Automatically freed when pool is destroyed
 
 // COMMAND BUFFERS
