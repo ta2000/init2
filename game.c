@@ -27,13 +27,16 @@ void GameInit(struct Game* game)
     GameCreateMesh(game, terrainMesh, 4 * terrainSize * terrainSize);
     free(terrainMesh);*/
 
-    /*EngineCreateDescriptor(
-        &(game->engine),
+    EngineCreateDescriptor(
+        game->engine,
         &(game->engine->meshes[0].descriptor),
         "assets/textures/robot-texture.png"
     );
-    EngineLoadModel(&(game->engine), "assets/models/robot.dae");
-    EngineCreateGameObject(&(game->engine), &(game->engine->meshes[0]));*/
+    EngineLoadModel(
+        game->engine,
+        "assets/models/robot.dae"
+    );
+    EngineCreateGameObject(game->engine, &(game->engine->meshes[0]));
 
     EngineRun(engine);
     EngineDestroy(engine);

@@ -273,21 +273,9 @@ void EngineInit(struct Engine* self)
     createFramebuffers(self);
     createUniformBuffer(self);
     createDescriptorPool(self);
-    //self->meshes[0].descriptor = *(EngineCreateDescriptor(self, "assets/textures/robot-texture.png"));
     createCommandBuffers(self);
     createFence(self);
     createSemaphores(self);
-
-    EngineCreateDescriptor(
-        self,
-        &(self->meshes[0].descriptor),
-        "assets/textures/robot-texture.png"
-    );
-    EngineLoadModel(
-        self,
-        "assets/models/robot.dae"
-    );
-    EngineCreateGameObject(self, &(self->meshes[0]));
 }
 void EngineUpdate(struct Engine* self)
 {
