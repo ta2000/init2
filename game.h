@@ -16,12 +16,18 @@ void GameKeyPress(
     int key,
     int action
 );
-void GameCreateMesh(
+struct Mesh* GameGetMesh(
     struct Game* game,
-    float* vertices,
-    uint32_t vertexCount
+    const char* texturePath,
+    const char* modelPath
 );
-float* GameCreateTerrain(
+void GameCreateTerrain(
+    struct Game* game,
+    float* points,
+    uint32_t numPoints,
+    const char* texturePath
+);
+float* GameGenerateTerrain(
     struct Game* game,
     uint32_t size
 );

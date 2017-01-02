@@ -22,21 +22,22 @@ void GameInit(struct Game* game)
     game->engine->camera.z = 5.0f;
     game->engine->camera.angle = 0.0f;
 
-    /*uint32_t terrainSize = 4;
-    float* terrainMesh = GameCreateTerrain(game, terrainSize);
-    GameCreateMesh(game, terrainMesh, 4 * terrainSize * terrainSize);
-    free(terrainMesh);*/
-
-    EngineCreateDescriptor(
-        game->engine,
-        &(game->engine->meshes[0].descriptor),
-        "assets/textures/robot-texture.png"
+    uint32_t terrainSize = 4;
+    float* terrainMesh = GameGenerateTerrain(game, terrainSize);
+    GameCreateTerrain(
+        game,
+        terrainMesh,
+        4 * terrainSize * terrainSize,
+        "assets/textures/bark.jpg"
     );
-    EngineLoadModel(
-        game->engine,
+    free(terrainMesh);
+
+    struct Mesh* tmp = GameGetMesh(
+        game,
+        "assets/textures/robot-texture.png",
         "assets/models/robot.dae"
     );
-    EngineCreateGameObject(game->engine, &(game->engine->meshes[0]));
+    EngineCreateGameObject(game->engine, tmp);
 
     EngineRun(engine);
     EngineDestroy(engine);
@@ -44,9 +45,15 @@ void GameInit(struct Game* game)
     free(engine);
 }
 
+void GameStart(struct Game* game)
+{
+}
+
 void GameLoop(struct Game* game)
 {
     GameProcessInput(game);
+    game->engine->gameObjects[0].position[0] = 10.0f;
+    game->engine->gameObjects[1].position[0] = 0.0f;
 }
 
 void GameUpdate(struct Game* game)
@@ -114,8 +121,22 @@ void GameKeyPress(void* userPointer, int key, int action)
     }
 }
 
-// Only works with quads for now (%6)
-void GameCreateMesh(struct Game* game, float* points, uint32_t numPoints)
+struct Mesh* GameGetMesh(struct Game* game, const char* texturePath, const char* modelPath)
+{
+    EngineCreateDescriptor(
+        game->engine,
+        &(game->engine->meshes[game->engine->meshCount].descriptor),
+        texturePath
+    );
+    EngineLoadModel(
+        game->engine,
+        modelPath
+    );
+
+    return &(game->engine->meshes[game->engine->meshCount-1]);
+}
+
+void GameCreateTerrain(struct Game* game, float* points, uint32_t numPoints, const char* texturePath)
 {
     struct Vertex* vertices;
     vertices = calloc(numPoints, sizeof(*vertices));
@@ -151,30 +172,28 @@ void GameCreateMesh(struct Game* game, float* points, uint32_t numPoints)
             indices[indexCount] = i-3;
             indexCount++;
         }
-
-        /*printf("{ %f, %f, %f }\n",
-            vertices[i].position[0],
-            vertices[i].position[1],
-            vertices[i].position[2]
-        );
-        if ((i+1)%4 == 0)
-            printf("\n");*/
     }
 
-    /*uint32_t tmp;
-    for (tmp=0; tmp<indexCount; tmp++)
-    {
-        printf("%d, ", indices[tmp]);
-    } printf("\n");*/
-
-    //EngineCreateMesh(game->engine, vertices, i, indices, indexCount);
-    //EngineCreateGameObject(game->engine, &(game->engine->meshes[0]));
+    EngineCreateDescriptor(
+        game->engine,
+        &(game->engine->meshes[game->engine->meshCount].descriptor),
+        texturePath
+    );
+    EngineCreateMesh(
+        game->engine,
+        vertices, i,
+        indices, indexCount
+    );
+    EngineCreateGameObject(
+        game->engine,
+        &(game->engine->meshes[game->engine->meshCount-1])
+    );
 
     free(indices);
     free(vertices);
 }
 
-float* GameCreateTerrain(struct Game* game, uint32_t size)
+float* GameGenerateTerrain(struct Game* game, uint32_t size)
 {
     float* terrain;
     // Rect = 4 points

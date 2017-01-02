@@ -2482,15 +2482,15 @@ void createDescriptorPool(struct Engine* engine)
 {
     VkDescriptorPoolSize poolSizes[2];
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = 1;
+    poolSizes[0].descriptorCount = MAX_MESHES;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = 1;
+    poolSizes[1].descriptorCount = MAX_MESHES;
 
     VkDescriptorPoolCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     createInfo.pNext = NULL;
     createInfo.flags = 0;
-    createInfo.maxSets = 1;
+    createInfo.maxSets = MAX_MESHES;
     createInfo.poolSizeCount = 2;
     createInfo.pPoolSizes = poolSizes;
 
@@ -2675,6 +2675,13 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
     );
 
     // Transform
+    mat4x4_translate(
+        gameObject->model,
+        gameObject->position[0],
+        gameObject->position[1],
+        gameObject->position[2]
+    );
+
     mat4x4 vp, mvp;
     mat4x4_mul(vp, engine->ubo.proj, engine->ubo.view);
     mat4x4_mul(mvp, vp, gameObject->model);
