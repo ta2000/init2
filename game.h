@@ -7,6 +7,7 @@ struct Game
 };
 
 void GameInit(struct Game* game);
+void GameStart(struct Game* game);
 void GameLoop(struct Game* game);
 void GameUpdate(struct Game* game);
 void GameRender(struct Game* game);

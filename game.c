@@ -22,13 +22,13 @@ void GameInit(struct Game* game)
     game->engine->camera.z = 5.0f;
     game->engine->camera.angle = 0.0f;
 
-    uint32_t terrainSize = 4;
+    uint32_t terrainSize = 8;
     float* terrainMesh = GameGenerateTerrain(game, terrainSize);
     GameCreateTerrain(
         game,
         terrainMesh,
         4 * terrainSize * terrainSize,
-        "assets/textures/bark.jpg"
+        "assets/textures/ground.png"
     );
     free(terrainMesh);
 
@@ -154,8 +154,28 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t numPoints, con
         vertices[i].color[0] = 0.0f;
         vertices[i].color[1] = 0.0f;
         vertices[i].color[2] = 0.0f;
-        vertices[i].texCoord[0] = 0.0f;
-        vertices[i].texCoord[1] = 0.0f;
+
+        int texIndex = (i+1) % 4;
+        if (texIndex == 0)
+        {
+            vertices[i].texCoord[0] = 0.0f;
+            vertices[i].texCoord[1] = 1.0f;
+        }
+        else if (texIndex == 1)
+        {
+            vertices[i].texCoord[0] = 0.0f;
+            vertices[i].texCoord[1] = 0.0f;
+        }
+        else if (texIndex == 2)
+        {
+            vertices[i].texCoord[0] = 1.0f;
+            vertices[i].texCoord[1] = 0.0f;
+        }
+        else if (texIndex == 3)
+        {
+            vertices[i].texCoord[0] = 1.0f;
+            vertices[i].texCoord[1] = 1.0f;
+        }
 
         indices[indexCount] = i;
         indexCount++;
@@ -207,25 +227,32 @@ float* GameGenerateTerrain(struct Game* game, uint32_t size)
         0.0f, 1.0f, 0.0f
     };
 
-    int offset = 1;
-    int tileSize = 3;
+    int seperation = 1;
+    int tileSize = 8;
+    int xOffset = 0;
+    int yOffset = 0;
 
     uint32_t i, j;
     // (size * size) tiles
     for (i=0; i<12*size*size; i+=12)
     {
+        int tileNum = (i/12)+1;
+
         // 4 points
         for (j=0; j<4; j++)
         {
             // 3 coordinates
-            terrain[i + (j*3) + 0] =
-                tileSize * square[j * 3 + 0] + tileSize * (offset*(i/12)); // X
+            terrain[i + (j*3) + 0] = tileSize * square[j * 3 + 0] + xOffset;
+            terrain[i + (j*3) + 1] = tileSize * square[j * 3 + 1] + yOffset;
+            terrain[i + (j*3) + 2] = square[j * 3 + 2];
+        }
 
-            terrain[i + (j*3) + 1] =
-                tileSize * square[j * 3 + 1] + tileSize * (offset*(i/12)); // Y
-
-            terrain[i + (j*3) + 2] =
-                square[j * 3 + 2]; // Z
+        // Change position
+        yOffset += tileSize*seperation;
+        if (tileNum % size == 0)
+        {
+            xOffset += tileSize*seperation;
+            yOffset = 0;
         }
     }
 
