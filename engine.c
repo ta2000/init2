@@ -2727,9 +2727,9 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
     renderPassInfo.renderArea.extent = engine->swapChainExtent;
 
     VkClearValue clearValues[2];
-    clearValues[0].color.float32[0] = 0.9f;
-    clearValues[0].color.float32[1] = 1.0f;
-    clearValues[0].color.float32[2] = 0.8f;
+    clearValues[0].color.float32[0] = 0.1f;
+    clearValues[0].color.float32[1] = 0.1f;
+    clearValues[0].color.float32[2] = 0.1f;
     clearValues[0].color.float32[3] = 1.0f;
     clearValues[1].depthStencil.depth = 1.0f;
     clearValues[1].depthStencil.stencil = 0;

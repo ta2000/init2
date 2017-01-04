@@ -22,13 +22,13 @@ void GameInit(struct Game* game)
     game->engine->camera.z = 5.0f;
     game->engine->camera.angle = 0.0f;
 
-    uint32_t terrainSize = 8;
+    uint32_t terrainSize = 16;
     float* terrainMesh = GameGenerateTerrain(game, terrainSize);
     GameCreateTerrain(
         game,
         terrainMesh,
-        4 * terrainSize * terrainSize,
-        "assets/textures/ground.png"
+        terrainSize,
+        "assets/textures/ground.jpg"
     );
     free(terrainMesh);
 
@@ -136,60 +136,50 @@ struct Mesh* GameGetMesh(struct Game* game, const char* texturePath, const char*
     return &(game->engine->meshes[game->engine->meshCount-1]);
 }
 
-void GameCreateTerrain(struct Game* game, float* points, uint32_t numPoints, const char* texturePath)
+void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const char* texturePath)
 {
+    uint32_t numPoints = (size+1) * (size+1);
+
     struct Vertex* vertices;
     vertices = calloc(numPoints, sizeof(*vertices));
 
     uint32_t* indices;
-    indices = calloc(2 * numPoints, sizeof(*indices));
+    indices = calloc(6 * (size*size), sizeof(*indices));
     uint32_t indexCount = 0;
 
     uint32_t i;
     for (i=0; i<numPoints; i++)
     {
+        /*printf("{ %f, %f, %f }\n",
+            points[i*3+0],
+            points[i*3+1],
+            points[i*3+2]
+        );*/
+
+        // Generate vertices
         vertices[i].position[0] = points[i * 3 + 0];
         vertices[i].position[1] = points[i * 3 + 1];
         vertices[i].position[2] = points[i * 3 + 2];
         vertices[i].color[0] = 0.0f;
         vertices[i].color[1] = 0.0f;
         vertices[i].color[2] = 0.0f;
+        vertices[i].texCoord[0] = 1.0f;
+        vertices[i].texCoord[1] = 1.0f;
 
-        int texIndex = (i+1) % 4;
-        if (texIndex == 0)
-        {
-            vertices[i].texCoord[0] = 0.0f;
-            vertices[i].texCoord[1] = 1.0f;
-        }
-        else if (texIndex == 1)
-        {
-            vertices[i].texCoord[0] = 0.0f;
-            vertices[i].texCoord[1] = 0.0f;
-        }
-        else if (texIndex == 2)
-        {
-            vertices[i].texCoord[0] = 1.0f;
-            vertices[i].texCoord[1] = 0.0f;
-        }
-        else if (texIndex == 3)
-        {
-            vertices[i].texCoord[0] = 1.0f;
-            vertices[i].texCoord[1] = 1.0f;
-        }
-
-        indices[indexCount] = i;
-        indexCount++;
-
-        // Duplicate third vertex
-        if (indexCount % 3 == 0 && indexCount % 6 != 0)
+        // Generate indices for all non-degenerate points
+        if ((i+1) % (size+1) != 0 && i < numPoints - (size+1))
         {
             indices[indexCount] = i;
             indexCount++;
-        }
-        // Close loop
-        else if ((indexCount+1) % 6 == 0)
-        {
-            indices[indexCount] = i-3;
+            indices[indexCount] = i + (size+1);
+            indexCount++;
+            indices[indexCount] = i + (size+2);
+            indexCount++;
+            indices[indexCount] = i + (size+2);
+            indexCount++;
+            indices[indexCount] = i + 1;
+            indexCount++;
+            indices[indexCount] = i;
             indexCount++;
         }
     }
@@ -216,42 +206,25 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t numPoints, con
 float* GameGenerateTerrain(struct Game* game, uint32_t size)
 {
     float* terrain;
-    // Rect = 4 points
-    // Point = 3 floats
-    terrain = calloc((3 * 4) * (size * size), sizeof(*terrain));
+    terrain = calloc(3*(size+1)*(size+1), sizeof(*terrain));
 
-    float square[] = {
-        0.0f, 0.0f, 0.0f,
-        1.0f, 0.0f, 0.0f,
-        1.0f, 1.0f, 0.0f,
-        0.0f, 1.0f, 0.0f
-    };
-
-    int seperation = 1;
-    int tileSize = 8;
-    int xOffset = 0;
-    int yOffset = 0;
+    float tileSize = 4;
+    float xOffset = 0.0f;
+    float yOffset = 0.0f;
 
     uint32_t i, j;
-    // (size * size) tiles
-    for (i=0; i<12*size*size; i+=12)
+    for (i=0; i<3*(size+1)*(size+1); i+=3)
     {
-        int tileNum = (i/12)+1;
+        uint32_t currentPoint = ((i/3)+1) % (size+1);
 
-        // 4 points
-        for (j=0; j<4; j++)
-        {
-            // 3 coordinates
-            terrain[i + (j*3) + 0] = tileSize * square[j * 3 + 0] + xOffset;
-            terrain[i + (j*3) + 1] = tileSize * square[j * 3 + 1] + yOffset;
-            terrain[i + (j*3) + 2] = square[j * 3 + 2];
-        }
+        terrain[i+0] = xOffset;
+        terrain[i+1] = yOffset;
+        terrain[i+2] = 2 * (float)rand()/(float)RAND_MAX;//0.0f;
 
-        // Change position
-        yOffset += tileSize*seperation;
-        if (tileNum % size == 0)
+        yOffset += tileSize;
+        if (currentPoint == 0)
         {
-            xOffset += tileSize*seperation;
+            xOffset += tileSize;
             yOffset = 0;
         }
     }
