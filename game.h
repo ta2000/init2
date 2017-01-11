@@ -4,11 +4,16 @@
 struct Game
 {
     struct Engine* engine;
+    uint16_t keyStates[GLFW_KEY_LAST + 1];
+    uint8_t numKeyStates;
+    double then, lag;
+    struct Robot* player;
+    struct RobotPool robotPool;
 };
 
 void GameInit(struct Game* game);
 void GameStart(struct Game* game);
-void GameLoop(struct Game* game);
+void GameLoop(void* gamePointer);
 void GameUpdate(struct Game* game);
 void GameRender(struct Game* game);
 void GameProcessInput(struct Game* game);

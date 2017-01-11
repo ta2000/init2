@@ -35,12 +35,12 @@ uint32_t max(uint32_t a, uint32_t b)
 /*  -----------------------------
  *  --- Main engine functions ---
  *  -----------------------------   */
-void EngineCreateGameObject(struct Engine* self, struct Mesh* mesh)
+struct GameObject* EngineCreateGameObject(struct Engine* self, struct Mesh* mesh)
 {
     if (self->gameObjectCount >= MAX_OBJECTS)
     {
         printf("Object limit reached.\n");
-        return;
+        return NULL;
     }
 
     // Set mesh of new game object
@@ -70,6 +70,8 @@ void EngineCreateGameObject(struct Engine* self, struct Mesh* mesh)
     }
 
     self->gameObjectCount++;
+
+    return &(self->gameObjects[self->gameObjectCount-1]);
 }
 void EngineDestroyGameObject(struct Engine* self, struct GameObject* gameObject)
 {
@@ -89,12 +91,12 @@ void EngineDestroyGameObject(struct Engine* self, struct GameObject* gameObject)
 
     self->gameObjectCount--;
 }
-void EngineCreateMesh(struct Engine* self, struct Vertex* vertices, uint32_t vertexCount, uint32_t* indices, uint32_t indexCount)
+struct Mesh* EngineCreateMesh(struct Engine* self, struct Vertex* vertices, uint32_t vertexCount, uint32_t* indices, uint32_t indexCount)
 {
     if (self->meshCount >= MAX_MESHES)
     {
         printf("Mesh limit reached.\n");
-        return;
+        return NULL;
     }
 
     createVertexBuffer(
@@ -116,6 +118,8 @@ void EngineCreateMesh(struct Engine* self, struct Vertex* vertices, uint32_t ver
     );
 
     self->meshCount++;
+
+    return &(self->meshes[self->meshCount-1]);
 }
 void EngineDestroyMesh(struct Engine* self, struct Mesh* mesh)
 {
@@ -172,7 +176,7 @@ void EngineDestroyDescriptor(struct Engine* self, struct Descriptor* descriptor)
         &(descriptor->textureImage.memory)
     );
 }
-void EngineLoadModel(struct Engine* self, const char* path)
+struct Mesh* EngineLoadModel(struct Engine* self, const char* path)
 {
     const struct aiScene* scene;
     scene = aiImportFile(
@@ -228,7 +232,8 @@ void EngineLoadModel(struct Engine* self, const char* path)
         indexCount++;
     }
 
-    EngineCreateMesh(
+    struct Mesh* modelMesh;
+    modelMesh = EngineCreateMesh(
         self,
         vertices,
         vertexCount,
@@ -239,6 +244,8 @@ void EngineLoadModel(struct Engine* self, const char* path)
     free(vertices);
     free(indices);
     aiReleaseImport(scene);
+
+    return modelMesh;
 }
 void EngineInit(struct Engine* self)
 {
@@ -2440,7 +2447,7 @@ void updateUniformBuffer(struct Engine* engine)
         (float)degreesToRadians(45.0f),
         engine->swapChainExtent.width/(float)engine->swapChainExtent.height,
         0.1f,
-        100.0f
+        1000.0f
     );
 
     engine->ubo.proj[1][1] *= -1;
@@ -2675,12 +2682,21 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
     );
 
     // Transform
+    mat4x4 translated, rotatedX, rotatedY, rotatedZ, identity;
+    mat4x4_identity(identity);
     mat4x4_translate(
-        gameObject->model,
+        translated,
         gameObject->position[0],
         gameObject->position[1],
         gameObject->position[2]
     );
+    mat4x4_rotate_X(rotatedX, identity, gameObject->rotation[0]);
+    mat4x4_rotate_Y(rotatedY, identity, gameObject->rotation[1]);
+    mat4x4_rotate_Z(rotatedZ, identity, gameObject->rotation[2]);
+    mat4x4 xy, xyz;
+    mat4x4_mul(xy, rotatedX, rotatedY);
+    mat4x4_mul(xyz, xy, rotatedZ);
+    mat4x4_mul(gameObject->model, translated, xyz);
 
     mat4x4 vp, mvp;
     mat4x4_mul(vp, engine->ubo.proj, engine->ubo.view);
@@ -2727,9 +2743,9 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
     renderPassInfo.renderArea.extent = engine->swapChainExtent;
 
     VkClearValue clearValues[2];
-    clearValues[0].color.float32[0] = 0.1f;
-    clearValues[0].color.float32[1] = 0.1f;
-    clearValues[0].color.float32[2] = 0.1f;
+    clearValues[0].color.float32[0] = 0.8f;
+    clearValues[0].color.float32[1] = 0.8f;
+    clearValues[0].color.float32[2] = 0.8f;
     clearValues[0].color.float32[3] = 1.0f;
     clearValues[1].depthStencil.depth = 1.0f;
     clearValues[1].depthStencil.stencil = 0;

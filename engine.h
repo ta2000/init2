@@ -183,7 +183,7 @@ struct Engine
     VkSemaphore imageAvailable;
     VkSemaphore renderFinished;
 };
-void EngineCreateGameObject(
+struct GameObject* EngineCreateGameObject(
     struct Engine* self,
     struct Mesh* mesh
 );
@@ -191,7 +191,7 @@ void EngineDestroyGameObject(
     struct Engine* self,
     struct GameObject* gameObject
 );
-void EngineCreateMesh(
+struct Mesh* EngineCreateMesh(
     struct Engine* self,
     struct Vertex* vertices,
     uint32_t vertexCount,
@@ -211,7 +211,7 @@ void EngineDestroyDescriptor(
     struct Engine* self,
     struct Descriptor* descriptor
 );
-void EngineLoadModel(
+struct Mesh* EngineLoadModel(
     struct Engine* self,
     const char* path
 );

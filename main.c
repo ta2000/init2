@@ -1,7 +1,10 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <time.h>
 #include <stdlib.h>
 
+#include "robot.h"
+#include "robotpool.h"
 #include "engine.h"
 #include "game.h"
 

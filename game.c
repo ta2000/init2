@@ -1,11 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <assert.h>
 #include <math.h>
+#include <time.h>
 
+#include "robot.h"
+#include "robotpool.h"
 #include "engine.h"
 #include "game.h"
-
-_Bool keysPressed[4] = {0};
 
 void GameInit(struct Game* game)
 {
@@ -15,14 +18,18 @@ void GameInit(struct Game* game)
     game->engine = engine;
     game->engine->keyCallback = GameKeyPress;
     game->engine->gameLoopCallback = GameLoop;
-    game->engine->userPointer = game;
+    game->engine->userPointer = (void*)game;
 
     game->engine->camera.x = 5.0f;
     game->engine->camera.y = 5.0f;
     game->engine->camera.z = 5.0f;
     game->engine->camera.angle = 0.0f;
 
-    uint32_t terrainSize = 16;
+    game->numKeyStates = GLFW_KEY_LAST + 1;
+
+    RobotPoolInit( &(game->robotPool) );
+
+    uint32_t terrainSize = 3;
     float* terrainMesh = GameGenerateTerrain(game, terrainSize);
     GameCreateTerrain(
         game,
@@ -32,13 +39,7 @@ void GameInit(struct Game* game)
     );
     free(terrainMesh);
 
-    struct Mesh* tmp = GameGetMesh(
-        game,
-        "assets/textures/robot-texture.png",
-        "assets/models/robot.dae"
-    );
-    EngineCreateGameObject(game->engine, tmp);
-
+    GameStart(game);
     EngineRun(engine);
     EngineDestroy(engine);
 
@@ -47,18 +48,54 @@ void GameInit(struct Game* game)
 
 void GameStart(struct Game* game)
 {
+    struct Mesh* robotMesh;
+    robotMesh = GameGetMesh(
+        game,
+        "assets/textures/robot-texture.png",
+        "assets/models/robot.dae"
+    );
+
+    uint8_t i;
+    for (i=0; i<1; i++)
+    {
+        struct GameObject* robotObj;
+        robotObj = EngineCreateGameObject(game->engine, robotMesh);
+
+        float pos[3] = {0.0f, 0.0f, 0.0f};
+
+        RobotInit(
+            &(game->robotPool.robots[i]),
+            robotObj,
+            pos
+        );
+    }
+
+    game->then = (double)clock();
+    printf("%f\n", (float)(game->then));
 }
 
-void GameLoop(struct Game* game)
+void GameLoop(void* gamePointer)
 {
+    struct Game* game = (struct Game*) gamePointer;
+
+    double dt = 1.0f / 60.0f;
+    double currentTime = (double)clock();
+    double elapsed = ((double)(currentTime - game->then) / CLOCKS_PER_SEC) * 1000.0f;
+    game->then = currentTime;
+    game->lag += elapsed;
+
     GameProcessInput(game);
-    game->engine->gameObjects[0].position[0] = 10.0f;
-    game->engine->gameObjects[1].position[0] = 0.0f;
+    while (game->lag >= 0.0)
+    {
+        GameUpdate(game);
+        game->lag -= dt;
+    }
+    GameRender(game);
 }
 
 void GameUpdate(struct Game* game)
 {
-
+    RobotPoolUpdate(&(game->robotPool), game->keyStates);
 }
 
 void GameRender(struct Game* game)
@@ -75,20 +112,20 @@ void GameProcessInput(struct Game* game)
     if (camera->angle < 0)
         camera->angle += (2*M_PI);
 
-    if (keysPressed[0]) // A
+    if (game->keyStates[GLFW_KEY_LEFT])
     {
         camera->angle += 0.005f;
     }
-    else if (keysPressed[1]) // D
+    if (game->keyStates[GLFW_KEY_RIGHT])
     {
         camera->angle -= 0.005f;
     }
-    if (keysPressed[2]) // W
+    if (game->keyStates[GLFW_KEY_UP])
     {
         camera->x += (float)cos(camera->angle) * 0.1;
         camera->y += (float)sin(camera->angle) * 0.1;
     }
-    else if (keysPressed[3]) // S
+    if (game->keyStates[GLFW_KEY_DOWN])
     {
         camera->x -= (float)cos(camera->angle) * 0.1;
         camera->y -= (float)sin(camera->angle) * 0.1;
@@ -103,21 +140,16 @@ void GameKeyPress(void* userPointer, int key, int action)
 {
     struct Game* game = (struct Game*)userPointer;
 
-    if (key == GLFW_KEY_A)
+    if (key == GLFW_KEY_UNKNOWN)
+        return;
+
+    if (action == GLFW_PRESS)
     {
-        keysPressed[0] = action;
+        game->keyStates[key] = 1;
     }
-    else if (key == GLFW_KEY_D)
+    else if (action == GLFW_RELEASE)
     {
-        keysPressed[1] = action;
-    }
-    else if (key == GLFW_KEY_W)
-    {
-        keysPressed[2] = action;
-    }
-    else if (key == GLFW_KEY_S)
-    {
-        keysPressed[3] = action;
+        game->keyStates[key] = 0;
     }
 }
 
@@ -163,8 +195,6 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
         vertices[i].color[0] = 0.0f;
         vertices[i].color[1] = 0.0f;
         vertices[i].color[2] = 0.0f;
-        vertices[i].texCoord[0] = 1.0f;
-        vertices[i].texCoord[1] = 1.0f;
 
         // Generate indices for all non-degenerate points
         if ((i+1) % (size+1) != 0 && i < numPoints - (size+1))
@@ -182,6 +212,13 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
             indices[indexCount] = i;
             indexCount++;
         }
+    }
+
+    uint32_t j;
+    for (j=0; j<numPoints; j++)
+    {
+        //printf("%d: %f\n", i, 1-(float)(i%(size+1))/(float)(size+1));
+        vertices[j].texCoord[1] = 1 - (float)i/(float)(size+1);
     }
 
     EngineCreateDescriptor(
@@ -212,7 +249,7 @@ float* GameGenerateTerrain(struct Game* game, uint32_t size)
     float xOffset = 0.0f;
     float yOffset = 0.0f;
 
-    uint32_t i, j;
+    uint32_t i;
     for (i=0; i<3*(size+1)*(size+1); i+=3)
     {
         uint32_t currentPoint = ((i/3)+1) % (size+1);
