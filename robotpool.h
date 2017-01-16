@@ -1,7 +1,7 @@
 #ifndef ROBOTPOOL_H_
 #define ROBOTPOOL_H_
 
-#define MAX_ROBOTS 10
+#define MAX_ROBOTS 50
 
 struct RobotPool
 {

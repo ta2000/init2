@@ -12,6 +12,7 @@ void RobotInit(struct Robot* self, struct GameObject* gameObject)
 {
     self->gameObject = gameObject;
     self->gameObject->rotation[0] = (float)degreesToRadians(90.0f);
+    self->gameObject->rotation[1] = (float)degreesToRadians(90.0f);
     self->gameObject->visible = 0;
 
     self->actionKeyMap[MOVE_FORWARD] = GLFW_KEY_W;

@@ -59,7 +59,7 @@ void GameStart(struct Game* game)
 
     // Initialize pool for robots
     struct GameObject** robotObjects;
-    robotObjects = malloc(sizeof(struct GameObject) * GAME_NUM_ROBOTS);
+    robotObjects = malloc(sizeof(struct GameObject*) * GAME_NUM_ROBOTS);
 
     uint8_t i;
     for (i=0; i<GAME_NUM_ROBOTS; i++)
@@ -69,8 +69,12 @@ void GameStart(struct Game* game)
 
     RobotPoolInit(&(game->robotPool), robotObjects, GAME_NUM_ROBOTS);
 
-    RobotPoolCreate(&(game->robotPool), 5.0f, 5.0f, 0.0f);
-    RobotPoolCreate(&(game->robotPool), 10.0f, 5.0f, 0.0f);
+    for (i=0; i<15; i++)
+    {
+        RobotPoolCreate(&(game->robotPool), (float)i*10, 5.0f, 0.0f);
+    }
+
+    free(robotObjects);
 
     // Record starting time
     game->then = (double)clock();
