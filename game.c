@@ -27,7 +27,7 @@ void GameInit(struct Game* game)
 
     game->numKeyStates = GLFW_KEY_LAST + 1;
 
-    uint32_t terrainSize = 16;
+    uint32_t terrainSize = 8;
     float* terrainMesh = GameGenerateTerrain(game, terrainSize);
     GameCreateTerrain(
         game,
@@ -197,7 +197,7 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
             points[i*3+2]
         );*/
 
-        if ((i+1) % (size+1) == 0)
+        if (i % (size+1) == 0)
         {
             row++;
         }
@@ -265,7 +265,7 @@ float* GameGenerateTerrain(struct Game* game, uint32_t size)
 
         terrain[i+0] = xOffset;
         terrain[i+1] = yOffset;
-        terrain[i+2] = 2 * (float)rand()/(float)RAND_MAX;
+        terrain[i+2] = 0.0f;//2 * (float)rand()/(float)RAND_MAX;
 
         yOffset += tileSize;
         if (currentPoint == 0)
