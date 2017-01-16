@@ -27,7 +27,7 @@ void GameInit(struct Game* game)
 
     game->numKeyStates = GLFW_KEY_LAST + 1;
 
-    uint32_t terrainSize = 3;
+    uint32_t terrainSize = 16;
     float* terrainMesh = GameGenerateTerrain(game, terrainSize);
     GameCreateTerrain(
         game,
@@ -130,6 +130,14 @@ void GameProcessInput(struct Game* game)
         camera->x -= (float)cos(camera->angle) * 0.1;
         camera->y -= (float)sin(camera->angle) * 0.1;
     }
+    if (game->keyStates[GLFW_KEY_SPACE])
+    {
+        camera->z += 0.02f;
+    }
+    if (game->keyStates[GLFW_KEY_LEFT_SHIFT])
+    {
+        camera->z -= 0.02f;
+    }
 
     camera->xTarget = camera->x + (float)cos(camera->angle);
     camera->yTarget = camera->y + (float)sin(camera->angle);
@@ -179,6 +187,7 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
     indices = calloc(6 * (size*size), sizeof(*indices));
     uint32_t indexCount = 0;
 
+    uint32_t row = 0;
     uint32_t i;
     for (i=0; i<numPoints; i++)
     {
@@ -188,10 +197,17 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
             points[i*3+2]
         );*/
 
+        if ((i+1) % (size+1) == 0)
+        {
+            row++;
+        }
+
         // Generate vertices
         vertices[i].position[0] = points[i * 3 + 0];
         vertices[i].position[1] = points[i * 3 + 1];
         vertices[i].position[2] = points[i * 3 + 2];
+        vertices[i].texCoord[0] = (float)(i%(size+1)) / (float)size;
+        vertices[i].texCoord[1] = (float)row / (float)(size+1);
         vertices[i].color[0] = 0.0f;
         vertices[i].color[1] = 0.0f;
         vertices[i].color[2] = 0.0f;
@@ -212,13 +228,6 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
             indices[indexCount] = i;
             indexCount++;
         }
-    }
-
-    uint32_t j;
-    for (j=0; j<numPoints; j++)
-    {
-        //printf("%d: %f\n", i, 1-(float)(i%(size+1))/(float)(size+1));
-        vertices[j].texCoord[1] = 1 - (float)i/(float)(size+1);
     }
 
     EngineCreateDescriptor(
@@ -256,7 +265,7 @@ float* GameGenerateTerrain(struct Game* game, uint32_t size)
 
         terrain[i+0] = xOffset;
         terrain[i+1] = yOffset;
-        terrain[i+2] = 2 * (float)rand()/(float)RAND_MAX;//0.0f;
+        terrain[i+2] = 2 * (float)rand()/(float)RAND_MAX;
 
         yOffset += tileSize;
         if (currentPoint == 0)
