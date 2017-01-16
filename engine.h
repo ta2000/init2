@@ -77,6 +77,7 @@ struct GameObject
     vec3 position;
     mat4x4 model;
     VkCommandBuffer commandBuffer;
+    _Bool visible;
 };
 
 struct Camera

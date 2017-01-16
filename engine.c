@@ -69,6 +69,9 @@ struct GameObject* EngineCreateGameObject(struct Engine* self, struct Mesh* mesh
         exit(-1);
     }
 
+    // Set to visible
+    self->gameObjects[self->gameObjectCount].visible = 1;
+
     self->gameObjectCount++;
 
     return &(self->gameObjects[self->gameObjectCount-1]);
@@ -2731,6 +2734,7 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
     beginInfo.flags = 0;
     beginInfo.pInheritanceInfo = NULL;
 
+    // Begin primary command buffer recording
     vkBeginCommandBuffer(engine->commandBuffers[currentBuffer], &beginInfo);
 
     VkRenderPassBeginInfo renderPassInfo;
@@ -2753,35 +2757,42 @@ void generateDrawCommands(struct Engine* engine, uint32_t currentBuffer)
     renderPassInfo.clearValueCount = 2;
     renderPassInfo.pClearValues = clearValues;
 
+    // Record secondary commands
+    VkCommandBuffer secondaryCommands[MAX_OBJECTS];
+    uint32_t sCmdIndex = 0;
+
     uint32_t i;
     for (i=0; i<engine->gameObjectCount; i++)
     {
-        recordSecondaryCommands(engine, &(engine->gameObjects[i]));
+        if (engine->gameObjects[i].visible)
+        {
+            recordSecondaryCommands(engine, &(engine->gameObjects[i]));
+            secondaryCommands[sCmdIndex] = engine->gameObjects[i].commandBuffer;
+            sCmdIndex++;
+        }
     }
 
+    // Render pass begin
     vkCmdBeginRenderPass(
         engine->commandBuffers[currentBuffer],
         &renderPassInfo,
         VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS
     );
 
-    VkCommandBuffer secondaryCommands[MAX_OBJECTS];
-    for (i=0; i<engine->gameObjectCount; i++)
-    {
-        secondaryCommands[i] = engine->gameObjects[i].commandBuffer;
-    }
-
+    // Execute secondary commands
     if (engine->gameObjectCount > 0)
     {
         vkCmdExecuteCommands(
             engine->commandBuffers[currentBuffer],
-            engine->gameObjectCount,
+            sCmdIndex,
             secondaryCommands
         );
     }
 
+    // Render pass end
     vkCmdEndRenderPass(engine->commandBuffers[currentBuffer]);
 
+    // End primary command buffer recording
     VkResult result;
     result = vkEndCommandBuffer(engine->commandBuffers[currentBuffer]);
     if (result != VK_SUCCESS)

@@ -27,8 +27,6 @@ void GameInit(struct Game* game)
 
     game->numKeyStates = GLFW_KEY_LAST + 1;
 
-    RobotPoolInit( &(game->robotPool) );
-
     uint32_t terrainSize = 3;
     float* terrainMesh = GameGenerateTerrain(game, terrainSize);
     GameCreateTerrain(
@@ -48,6 +46,7 @@ void GameInit(struct Game* game)
 
 void GameStart(struct Game* game)
 {
+    // Load robot mesh
     struct Mesh* robotMesh;
     robotMesh = GameGetMesh(
         game,
@@ -55,47 +54,44 @@ void GameStart(struct Game* game)
         "assets/models/robot.dae"
     );
 
+    // Initialize pool for bullets
+
+
+    // Initialize pool for robots
+    struct GameObject** robotObjects;
+    robotObjects = malloc(sizeof(struct GameObject) * GAME_NUM_ROBOTS);
+
     uint8_t i;
-    for (i=0; i<1; i++)
+    for (i=0; i<GAME_NUM_ROBOTS; i++)
     {
-        struct GameObject* robotObj;
-        robotObj = EngineCreateGameObject(game->engine, robotMesh);
-
-        float pos[3] = {0.0f, 0.0f, 0.0f};
-
-        RobotInit(
-            &(game->robotPool.robots[i]),
-            robotObj,
-            pos
-        );
+        robotObjects[i] = EngineCreateGameObject(game->engine, robotMesh);
     }
 
+    RobotPoolInit(&(game->robotPool), robotObjects, GAME_NUM_ROBOTS);
+
+    RobotPoolCreate(&(game->robotPool), 5.0f, 5.0f, 0.0f);
+    RobotPoolCreate(&(game->robotPool), 10.0f, 5.0f, 0.0f);
+
+    // Record starting time
     game->then = (double)clock();
-    printf("%f\n", (float)(game->then));
 }
 
 void GameLoop(void* gamePointer)
 {
     struct Game* game = (struct Game*) gamePointer;
 
-    double dt = 1.0f / 60.0f;
     double currentTime = (double)clock();
     double elapsed = ((double)(currentTime - game->then) / CLOCKS_PER_SEC) * 1000.0f;
-    game->then = currentTime;
-    game->lag += elapsed;
 
+    game->then = currentTime;
     GameProcessInput(game);
-    while (game->lag >= 0.0)
-    {
-        GameUpdate(game);
-        game->lag -= dt;
-    }
+    GameUpdate(game, elapsed);
     GameRender(game);
 }
 
-void GameUpdate(struct Game* game)
+void GameUpdate(struct Game* game, double elapsed)
 {
-    RobotPoolUpdate(&(game->robotPool), game->keyStates);
+    RobotPoolUpdate(&(game->robotPool), elapsed, game->keyStates);
 }
 
 void GameRender(struct Game* game)

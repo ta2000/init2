@@ -1,12 +1,14 @@
 #ifndef GAME_H_
 #define GAME_H_
 
+#define GAME_NUM_ROBOTS 5
+
 struct Game
 {
     struct Engine* engine;
     uint16_t keyStates[GLFW_KEY_LAST + 1];
     uint8_t numKeyStates;
-    double then, lag;
+    double then;
     struct Robot* player;
     struct RobotPool robotPool;
 };
@@ -14,7 +16,7 @@ struct Game
 void GameInit(struct Game* game);
 void GameStart(struct Game* game);
 void GameLoop(void* gamePointer);
-void GameUpdate(struct Game* game);
+void GameUpdate(struct Game* game, double elapsed);
 void GameRender(struct Game* game);
 void GameProcessInput(struct Game* game);
 void GameKeyPress(

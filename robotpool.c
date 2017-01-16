@@ -1,49 +1,63 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <assert.h>
 
+#include "engine.h"
 #include "robot.h"
 #include "robotpool.h"
 
-void RobotPoolInit(struct RobotPool* self)
+void RobotPoolInit(struct RobotPool* self, struct GameObject** gameObjects, uint8_t gameObjectCount)
 {
-    self->robotCount = ROBOT_COUNT;
+    assert(gameObjectCount < MAX_ROBOTS);
+    self->robotCount = gameObjectCount;
 
     self->head = &(self->robots[0]);
-    self->tail = &(self->robots[ROBOT_COUNT - 1]);
+    self->tail = &(self->robots[self->robotCount - 1]);
 
     uint8_t i;
-    for (i=0; i<ROBOT_COUNT - 1; i++)
+    for (i=0; i<self->robotCount; i++)
     {
-        self->robots[i].next = &(self->robots[i+1]);
-        self->robots[i].inUse = 0;
-    }
-}
-void RobotPoolUpdate(struct RobotPool* self, uint16_t* keyStates)
-{
-    uint8_t i;
-    for (i=0; i<ROBOT_COUNT; i++)
-    {
-        // Update robots and return them to the list
-        // if they die that frame (return true)
-        if (RobotUpdate(&(self->robots[0]), keyStates))
+        RobotInit(
+            &(self->robots[i]),
+            gameObjects[i]
+        );
+
+        if (i < self->robotCount - 1)
         {
-            RobotPoolReturn(self, &(self->robots[0]));
+            self->robots[i].next = &(self->robots[i+1]);
         }
     }
 }
-// TODO: Final robot in list cannot be taken
-struct Robot* RobotPoolGet(struct RobotPool* self)
+void RobotPoolUpdate(struct RobotPool* self, double elapsed, uint16_t* keyStates)
+{
+    uint8_t i;
+    for (i=0; i<MAX_ROBOTS; i++)
+    {
+        if (!RobotUpdate(&(self->robots[i]), elapsed, keyStates))
+        {
+            RobotPoolReturn(self, &(self->robots[i]));
+        }
+    }
+}
+// FIXME: Final robot in list cannot be taken
+void RobotPoolCreate(struct RobotPool* self, float x, float y, float z)
 {
     // All robots in use
     if (self->head->next == NULL)
     {
-        return NULL;
+        return;
     }
 
     self->head->inUse = 1;
-    struct Robot* nextAvailable = self->head;
+
+    self->head->gameObject->position[0] = x;
+    self->head->gameObject->position[1] = y;
+    self->head->gameObject->position[2] = z;
+    self->head->hp = 100;
+    self->head->playerControlled = 1;
+    self->head->gameObject->visible = 1;
+
     self->head = self->head->next;
-    return nextAvailable;
 }
 void RobotPoolReturn(struct RobotPool* self, struct Robot* robot)
 {
