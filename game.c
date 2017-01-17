@@ -1,3 +1,5 @@
+#include "stb_image.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -25,10 +27,14 @@ void GameInit(struct Game* game)
     game->engine->camera.z = 5.0f;
     game->engine->camera.angle = 0.0f;
 
-    game->numKeyStates = GLFW_KEY_LAST + 1;
+    game->numKeyStates = (uint16_t)GLFW_KEY_LAST + 1;
 
-    uint32_t terrainSize = 8;
-    float* terrainMesh = GameGenerateTerrain(game, terrainSize);
+    uint32_t terrainSize;
+    float* terrainMesh = GameGenerateTerrain(
+        game,
+        &terrainSize,
+        "assets/heightmaps/heightmap.bmp"
+    );
     GameCreateTerrain(
         game,
         terrainMesh,
@@ -249,23 +255,44 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
     free(vertices);
 }
 
-float* GameGenerateTerrain(struct Game* game, uint32_t size)
+float* GameGenerateTerrain(struct Game* game, uint32_t* size, char* heightmap)
 {
-    float* terrain;
-    terrain = calloc(3*(size+1)*(size+1), sizeof(*terrain));
+    int texWidth, texHeight, texChannels;
+    stbi_uc* pixels = stbi_load(
+        heightmap,
+        &texWidth,
+        &texHeight,
+        &texChannels,
+        STBI_rgb_alpha
+    );
 
-    float tileSize = 4;
+    assert(texWidth == texHeight);
+    *size = texWidth - 1;
+
+    if (!pixels)
+    {
+        fprintf(stderr, "stb_image failed to load resource %s\n", heightmap);
+        exit(-1);
+    }
+
+    float* terrain;
+    terrain = calloc(3*texWidth*texWidth, sizeof(*terrain));
+
+    float tileSize = 1;
     float xOffset = 0.0f;
     float yOffset = 0.0f;
 
+    uint32_t pixelIndex = 0;
     uint32_t i;
-    for (i=0; i<3*(size+1)*(size+1); i+=3)
+    for (i=0; i<3*texWidth*texWidth; i+=3)
     {
-        uint32_t currentPoint = ((i/3)+1) % (size+1);
+        uint32_t currentPoint = ((i/3)+1) % texWidth;
 
         terrain[i+0] = xOffset;
         terrain[i+1] = yOffset;
-        terrain[i+2] = 0.0f;//2 * (float)rand()/(float)RAND_MAX;
+        terrain[i+2] = ((float)pixels[pixelIndex])/16.0f;
+        //terrain[i+2] = 1.0f;//2 * (float)rand()/(float)RAND_MAX;
+        pixelIndex+=4;
 
         yOffset += tileSize;
         if (currentPoint == 0)
@@ -274,6 +301,8 @@ float* GameGenerateTerrain(struct Game* game, uint32_t size)
             yOffset = 0;
         }
     }
+
+    stbi_image_free(pixels);
 
     return terrain;
 }

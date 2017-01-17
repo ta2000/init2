@@ -7,7 +7,7 @@ struct Game
 {
     struct Engine* engine;
     uint16_t keyStates[GLFW_KEY_LAST + 1];
-    uint8_t numKeyStates;
+    uint16_t numKeyStates;
     double then;
     struct Robot* player;
     struct RobotPool robotPool;
@@ -37,7 +37,8 @@ void GameCreateTerrain(
 );
 float* GameGenerateTerrain(
     struct Game* game,
-    uint32_t size
+    uint32_t* size,
+    char* heightmap
 );
 
 #endif
