@@ -69,7 +69,7 @@ void GameStart(struct Game* game)
 
     RobotPoolInit(&(game->robotPool), robotObjects, GAME_NUM_ROBOTS);
 
-    for (i=0; i<15; i++)
+    for (i=0; i<GAME_NUM_ROBOTS; i++)
     {
         RobotPoolCreate(&(game->robotPool), (float)i*10, 5.0f, 0.0f);
     }

@@ -39,11 +39,9 @@ void RobotPoolUpdate(struct RobotPool* self, double elapsed, uint16_t* keyStates
         }
     }
 }
-// FIXME: Final robot in list cannot be taken
 void RobotPoolCreate(struct RobotPool* self, float x, float y, float z)
 {
-    // All robots in use
-    if (self->head->next == NULL)
+    if (self->head == NULL)
     {
         return;
     }
@@ -61,6 +59,11 @@ void RobotPoolCreate(struct RobotPool* self, float x, float y, float z)
 }
 void RobotPoolReturn(struct RobotPool* self, struct Robot* robot)
 {
+    if (self->head == NULL)
+    {
+        self->head = robot;
+    }
+
     robot->inUse = 0;
     self->tail->next = robot;
     self->tail = robot;
