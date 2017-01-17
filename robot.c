@@ -11,8 +11,7 @@
 void RobotInit(struct Robot* self, struct GameObject* gameObject)
 {
     self->gameObject = gameObject;
-    self->gameObject->rotation[0] = (float)degreesToRadians(90.0f);
-    self->gameObject->rotation[1] = (float)degreesToRadians(90.0f);
+    self->gameObject->rotation[0] = (float)degreesToRadians(270.0f);
     self->gameObject->visible = 0;
 
     self->actionKeyMap[MOVE_FORWARD] = GLFW_KEY_W;
@@ -79,7 +78,7 @@ _Bool RobotUpdate(struct Robot* self, double elapsed, uint16_t* keyStates)
 
 
     // Transform object
-    self->gameObject->rotation[1] = self->rotation;
+    self->gameObject->rotation[2] = self->rotation;
     self->velocity *= self->friction;
     self->gameObject->position[1] += cosf(self->rotation) * self->velocity * elapsed;
     self->gameObject->position[0] += sinf(self->rotation) * self->velocity * elapsed;

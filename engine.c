@@ -2685,21 +2685,20 @@ void recordSecondaryCommands(struct Engine* engine, struct GameObject* gameObjec
     );
 
     // Transform
-    mat4x4 translated, rotatedX, rotatedY, rotatedZ, identity;
-    mat4x4_identity(identity);
+    mat4x4 translated, rotated;
     mat4x4_translate(
         translated,
         gameObject->position[0],
         gameObject->position[1],
         gameObject->position[2]
     );
-    mat4x4_rotate_X(rotatedX, identity, gameObject->rotation[0]);
-    mat4x4_rotate_Y(rotatedY, identity, gameObject->rotation[1]);
-    mat4x4_rotate_Z(rotatedZ, identity, gameObject->rotation[2]);
-    mat4x4 xy, xyz;
-    mat4x4_mul(xy, rotatedX, rotatedY);
-    mat4x4_mul(xyz, xy, rotatedZ);
-    mat4x4_mul(gameObject->model, translated, xyz);
+    mat4x4_rotate_all(
+        rotated,
+        gameObject->rotation[0],
+        gameObject->rotation[1],
+        gameObject->rotation[2]
+    );
+    mat4x4_mul(gameObject->model, translated, rotated);
 
     mat4x4 vp, mvp;
     mat4x4_mul(vp, engine->ubo.proj, engine->ubo.view);

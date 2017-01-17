@@ -205,6 +205,30 @@ static inline void mat4x4_from_vec3_mul_outer(mat4x4 M, vec3 a, vec3 b) {
         for (j = 0; j < 4; ++j)
             M[i][j] = i < 3 && j < 3 ? a[i] * b[j] : 0.f;
 }
+static inline void mat4x4_rotate_all(mat4x4 M, float x, float y, float z) {
+    float a  = cosf(x);
+    float b  = sinf(x);
+    float c  = cosf(y);
+    float d  = sinf(y);
+    float e  = cosf(z);
+    float f  = sinf(z);
+
+    float ad = a * d;
+    float bd = b * d;
+
+    M[0][0]  =   c * e;
+    M[0][1]  =  -c * f;
+    M[0][2]  =   d;
+    M[1][0]  =  bd * e + a * f;
+    M[1][1]  = -bd * f + a * e;
+    M[1][2]  =  -b * c;
+    M[2][0]  = -ad * e + b * f;
+    M[2][1]  =  ad * f + b * e;
+    M[2][2] =   a * c;
+
+    M[0][3] = M[1][3] = M[2][3] = M[3][0] = M[3][1] = M[3][2] = 0;
+    M[3][3] = 1.f;
+}
 static inline void mat4x4_rotate(mat4x4 R, mat4x4 M, float x, float y, float z,
                                  float angle) {
     float s = sinf(angle);
