@@ -39,7 +39,7 @@ void GameInit(struct Game* game)
         game,
         terrainMesh,
         terrainSize,
-        "assets/textures/ground.jpg"
+        "assets/textures/grass.jpg"
     );
     free(terrainMesh);
 
@@ -212,8 +212,8 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
         vertices[i].position[0] = points[i * 3 + 0];
         vertices[i].position[1] = points[i * 3 + 1];
         vertices[i].position[2] = points[i * 3 + 2];
-        vertices[i].texCoord[0] = (float)(i%(size+1)) / (float)size;
-        vertices[i].texCoord[1] = (float)row / (float)(size+1);
+        vertices[i].texCoord[0] = 0.2f * size * ((float)(i%(size+1)) / (float)size);
+        vertices[i].texCoord[1] = 0.2f * size * ((float)row / (float)(size+1));
         vertices[i].color[0] = 0.0f;
         vertices[i].color[1] = 0.0f;
         vertices[i].color[2] = 0.0f;
@@ -278,7 +278,7 @@ float* GameGenerateTerrain(struct Game* game, uint32_t* size, char* heightmap)
     float* terrain;
     terrain = calloc(3*texWidth*texWidth, sizeof(*terrain));
 
-    float tileSize = 1;
+    float tileSize = 2;
     float xOffset = 0.0f;
     float yOffset = 0.0f;
 
@@ -290,8 +290,8 @@ float* GameGenerateTerrain(struct Game* game, uint32_t* size, char* heightmap)
 
         terrain[i+0] = xOffset;
         terrain[i+1] = yOffset;
-        terrain[i+2] = ((float)pixels[pixelIndex])/16.0f;
-        //terrain[i+2] = 1.0f;//2 * (float)rand()/(float)RAND_MAX;
+        terrain[i+2] = ((float)pixels[pixelIndex])/4.0f;
+        //terrain[i+2] = 0.0f;//2 * (float)rand()/(float)RAND_MAX;
         pixelIndex+=4;
 
         yOffset += tileSize;
