@@ -6,7 +6,7 @@
 #include "robot.h"
 #include "robotpool.h"
 
-void RobotPoolInit(struct RobotPool* self, struct GameObject** gameObjects, uint8_t gameObjectCount)
+void RobotPoolInit(struct RobotPool* self, struct GameObject** gameObjects, uint8_t gameObjectCount, struct BulletPool* bulletPool)
 {
     assert(gameObjectCount < MAX_ROBOTS);
     self->robotCount = gameObjectCount;
@@ -19,7 +19,8 @@ void RobotPoolInit(struct RobotPool* self, struct GameObject** gameObjects, uint
     {
         RobotInit(
             &(self->robots[i]),
-            gameObjects[i]
+            gameObjects[i],
+            bulletPool
         );
 
         if (i < self->robotCount - 1)
@@ -31,7 +32,7 @@ void RobotPoolInit(struct RobotPool* self, struct GameObject** gameObjects, uint
 void RobotPoolUpdate(struct RobotPool* self, double elapsed, uint16_t* keyStates)
 {
     uint8_t i;
-    for (i=0; i<MAX_ROBOTS; i++)
+    for (i=0; i<self->robotCount; i++)
     {
         if (!RobotUpdate(&(self->robots[i]), elapsed, keyStates))
         {
@@ -65,6 +66,7 @@ void RobotPoolReturn(struct RobotPool* self, struct Robot* robot)
     }
 
     robot->inUse = 0;
+    robot->gameObject->visible = 0;
     self->tail->next = robot;
     self->tail = robot;
     robot->next = NULL;

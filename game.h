@@ -2,6 +2,7 @@
 #define GAME_H_
 
 #define GAME_NUM_ROBOTS 1
+#define GAME_NUM_BULLETS 10
 
 struct Game
 {
@@ -9,8 +10,9 @@ struct Game
     uint16_t keyStates[GLFW_KEY_LAST + 1];
     uint16_t numKeyStates;
     double then;
-    struct Robot* player;
+    struct BulletPool bulletPool;
     struct RobotPool robotPool;
+    struct Robot* player;
 };
 
 void GameInit(struct Game* game);

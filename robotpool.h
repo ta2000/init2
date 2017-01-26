@@ -13,7 +13,8 @@ struct RobotPool
 void RobotPoolInit(
     struct RobotPool* self,
     struct GameObject** gameObjects,
-    uint8_t gameObjectCount
+    uint8_t gameObjectCount,
+    struct BulletPool* bulletPool
 );
 void RobotPoolUpdate(
     struct RobotPool* self,

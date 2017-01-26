@@ -7,6 +7,8 @@
 #include <math.h>
 #include <time.h>
 
+#include "bullet.h"
+#include "bulletpool.h"
 #include "robot.h"
 #include "robotpool.h"
 #include "engine.h"
@@ -52,6 +54,25 @@ void GameInit(struct Game* game)
 
 void GameStart(struct Game* game)
 {
+    // Load bullet mesh
+    struct Mesh* bulletMesh;
+    bulletMesh = GameGetMesh(
+        game,
+        "assets/textures/bullet-texture.png",
+        "assets/models/bullet.dae"
+    );
+
+    // Initialize pool for bullets
+    struct GameObject** bulletObjects;
+    bulletObjects = malloc(sizeof(struct GameObject*) * GAME_NUM_BULLETS);
+    uint8_t i;
+    for (i=0; i<GAME_NUM_BULLETS; i++)
+    {
+        bulletObjects[i] = EngineCreateGameObject(game->engine, bulletMesh);
+    }
+    BulletPoolInit(&(game->bulletPool), bulletObjects, GAME_NUM_BULLETS);
+    free(bulletObjects);
+
     // Load robot mesh
     struct Mesh* robotMesh;
     robotMesh = GameGetMesh(
@@ -60,28 +81,27 @@ void GameStart(struct Game* game)
         "assets/models/robot.dae"
     );
 
-    // Initialize pool for bullets
-
-
     // Initialize pool for robots
     struct GameObject** robotObjects;
     robotObjects = malloc(sizeof(struct GameObject*) * GAME_NUM_ROBOTS);
-
-    uint8_t i;
     for (i=0; i<GAME_NUM_ROBOTS; i++)
     {
         robotObjects[i] = EngineCreateGameObject(game->engine, robotMesh);
     }
+    RobotPoolInit(
+        &(game->robotPool),
+        robotObjects,
+        GAME_NUM_ROBOTS,
+        &(game->bulletPool)
+    );
+    free(robotObjects);
 
-    RobotPoolInit(&(game->robotPool), robotObjects, GAME_NUM_ROBOTS);
-
+    // Create robots
     for (i=0; i<GAME_NUM_ROBOTS; i++)
     {
         RobotPoolCreate(&(game->robotPool), (float)i*10, 5.0f, 0.0f);
     }
     game->player = &(game->robotPool.robots[0]);
-
-    free(robotObjects);
 
     // Record starting time
     game->then = (double)clock();
@@ -103,6 +123,7 @@ void GameLoop(void* gamePointer)
 void GameUpdate(struct Game* game, double elapsed)
 {
     RobotPoolUpdate(&(game->robotPool), elapsed, game->keyStates);
+    BulletPoolUpdate(&(game->bulletPool), elapsed);
     GameUpdateCamera(game, elapsed);
 }
 
@@ -114,9 +135,9 @@ void GameUpdateCamera(struct Game* game, double elapsed)
     struct Camera* camera = &(game->engine->camera);
     float* playerPos = game->player->gameObject->position;
 
-    camera->x = playerPos[0] + (sinf(game->player->rotation - 0.15f) * 8.0f);
-    camera->y = playerPos[1] + (cosf(game->player->rotation - 0.15f) * 8.0f);
-    camera->z = 7.0f;
+    camera->x = playerPos[0] + (sinf(game->player->rotation - 0.18f) * 8.0f);
+    camera->y = playerPos[1] + (cosf(game->player->rotation - 0.18f) * 8.0f);
+    camera->z = 7.5f;
 
     camera->xTarget = camera->x - sinf(game->player->rotation);
     camera->yTarget = camera->y - cosf(game->player->rotation);

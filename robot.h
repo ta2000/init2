@@ -7,6 +7,8 @@ enum RobotAction
     MOVE_BACKWARD,
     MOVE_LEFT,
     MOVE_RIGHT,
+    TURN_LEFT,
+    TURN_RIGHT,
     SHOOT,
     ACTIONS_LAST
 };
@@ -14,6 +16,7 @@ enum RobotAction
 struct Robot
 {
     struct GameObject* gameObject;
+    struct BulletPool* bulletPool;
 
     _Bool playerControlled;
     enum RobotAction actions[ACTIONS_LAST];
@@ -21,6 +24,7 @@ struct Robot
 
     uint16_t hp;
     double fireRate;
+    double fireTimer;
     float shotSpeed;
     float acceleration;
     double velocity;
@@ -28,14 +32,13 @@ struct Robot
     float rotationSpeed;
     float friction;
 
-    struct BulletPool* bulletPool;
-
     struct Robot* next;
     _Bool inUse;
 };
 void RobotInit(
     struct Robot* self,
-    struct GameObject* gameObject
+    struct GameObject* gameObject,
+    struct BulletPool* bulletPool
 );
 _Bool RobotUpdate(
     struct Robot* self,

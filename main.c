@@ -3,6 +3,8 @@
 #include <time.h>
 #include <stdlib.h>
 
+#include "bullet.h"
+#include "bulletpool.h"
 #include "robot.h"
 #include "robotpool.h"
 #include "engine.h"
