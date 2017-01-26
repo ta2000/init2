@@ -647,6 +647,12 @@ void getPhysicalDevice(struct Engine* engine)
         fprintf(stderr, "No usable devices found.\n");
         exit(-1);
     }
+
+    // Get properties of the physical device
+    vkGetPhysicalDeviceProperties(
+        engine->physicalDevice,
+        &engine->physicalDeviceProperties
+    );
 }
 
 // Determines whether a physical device has proper support, returns true (1)

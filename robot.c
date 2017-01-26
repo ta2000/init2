@@ -23,7 +23,7 @@ void RobotInit(struct Robot* self, struct GameObject* gameObject)
     self->hp = 100;
     self->fireRate = 10.0f;
     self->shotSpeed = 0.00002f;
-    self->acceleration = 0.0004f;
+    self->acceleration = 0.001f;
     self->velocity = 0.0f;
     self->rotation = 0.0f;
     self->rotationSpeed = 0.006f;
@@ -69,10 +69,10 @@ _Bool RobotUpdate(struct Robot* self, double elapsed, uint16_t* keyStates)
     }
 
     // Max velocity
-    if (self->velocity > 0.3f)
-        self->velocity = 0.3f;
-    if (self->velocity < -0.3f)
-        self->velocity = -0.3f;
+    if (self->velocity > 0.5f)
+        self->velocity = 0.5f;
+    if (self->velocity < -0.5f)
+        self->velocity = -0.5f;
 
     // Handle collision
 

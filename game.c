@@ -33,7 +33,7 @@ void GameInit(struct Game* game)
     float* terrainMesh = GameGenerateTerrain(
         game,
         &terrainSize,
-        "assets/heightmaps/heightmap.bmp"
+        "assets/heightmaps/heightmap_small.bmp"
     );
     GameCreateTerrain(
         game,
@@ -79,6 +79,7 @@ void GameStart(struct Game* game)
     {
         RobotPoolCreate(&(game->robotPool), (float)i*10, 5.0f, 0.0f);
     }
+    game->player = &(game->robotPool.robots[0]);
 
     free(robotObjects);
 
@@ -93,61 +94,38 @@ void GameLoop(void* gamePointer)
     double currentTime = (double)clock();
     double elapsed = ((double)(currentTime - game->then) / CLOCKS_PER_SEC) * 1000.0f;
 
-    game->then = currentTime;
-    GameProcessInput(game);
     GameUpdate(game, elapsed);
     GameRender(game);
+
+    game->then = currentTime;
 }
 
 void GameUpdate(struct Game* game, double elapsed)
 {
     RobotPoolUpdate(&(game->robotPool), elapsed, game->keyStates);
+    GameUpdateCamera(game, elapsed);
+}
+
+void GameUpdateCamera(struct Game* game, double elapsed)
+{
+    if (game->player == NULL)
+        return;
+
+    struct Camera* camera = &(game->engine->camera);
+    float* playerPos = game->player->gameObject->position;
+
+    camera->x = playerPos[0] + (sinf(game->player->rotation - 0.15f) * 8.0f);
+    camera->y = playerPos[1] + (cosf(game->player->rotation - 0.15f) * 8.0f);
+    camera->z = 7.0f;
+
+    camera->xTarget = camera->x - sinf(game->player->rotation);
+    camera->yTarget = camera->y - cosf(game->player->rotation);
+    camera->zTarget = camera->z - 0.2f;
 }
 
 void GameRender(struct Game* game)
 {
 
-}
-
-void GameProcessInput(struct Game* game)
-{
-    struct Camera* camera = &(game->engine->camera);
-
-    if (camera->angle > (2*M_PI))
-        camera->angle -= (2*M_PI);
-    if (camera->angle < 0)
-        camera->angle += (2*M_PI);
-
-    if (game->keyStates[GLFW_KEY_LEFT])
-    {
-        camera->angle += 0.005f;
-    }
-    if (game->keyStates[GLFW_KEY_RIGHT])
-    {
-        camera->angle -= 0.005f;
-    }
-    if (game->keyStates[GLFW_KEY_UP])
-    {
-        camera->x += (float)cos(camera->angle) * 0.1;
-        camera->y += (float)sin(camera->angle) * 0.1;
-    }
-    if (game->keyStates[GLFW_KEY_DOWN])
-    {
-        camera->x -= (float)cos(camera->angle) * 0.1;
-        camera->y -= (float)sin(camera->angle) * 0.1;
-    }
-    if (game->keyStates[GLFW_KEY_SPACE])
-    {
-        camera->z += 0.02f;
-    }
-    if (game->keyStates[GLFW_KEY_LEFT_SHIFT])
-    {
-        camera->z -= 0.02f;
-    }
-
-    camera->xTarget = camera->x + (float)cos(camera->angle);
-    camera->yTarget = camera->y + (float)sin(camera->angle);
-    camera->zTarget = camera->z;
 }
 
 void GameKeyPress(void* userPointer, int key, int action)
@@ -266,14 +244,14 @@ float* GameGenerateTerrain(struct Game* game, uint32_t* size, char* heightmap)
         STBI_rgb_alpha
     );
 
-    assert(texWidth == texHeight);
-    *size = texWidth - 1;
-
     if (!pixels)
     {
         fprintf(stderr, "stb_image failed to load resource %s\n", heightmap);
         exit(-1);
     }
+
+    assert(texWidth == texHeight);
+    *size = texWidth - 1;
 
     float* terrain;
     terrain = calloc(3*texWidth*texWidth, sizeof(*terrain));

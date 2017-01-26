@@ -124,6 +124,7 @@ struct Engine
 
     // Physical/logical device
     VkPhysicalDevice physicalDevice;
+    VkPhysicalDeviceProperties physicalDeviceProperties;
     VkDevice device;
 
     // Swapchain/images

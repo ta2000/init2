@@ -17,8 +17,8 @@ void GameInit(struct Game* game);
 void GameStart(struct Game* game);
 void GameLoop(void* gamePointer);
 void GameUpdate(struct Game* game, double elapsed);
+void GameUpdateCamera(struct Game* game, double elapsed);
 void GameRender(struct Game* game);
-void GameProcessInput(struct Game* game);
 void GameKeyPress(
     void* userPointer, // Passed from engine
     int key,
