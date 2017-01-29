@@ -27,9 +27,9 @@ _Bool BulletUpdate(struct Bullet* self, double elapsed)
 
     self->inUse = (
         self->gameObject->position[0] > 0.0f &&
-        self->gameObject->position[0] < 500.0f &&
+        self->gameObject->position[0] < 512.0f &&
         self->gameObject->position[1] > 0.0f &&
-        self->gameObject->position[1] < 500.0f
+        self->gameObject->position[1] < 512.0f
     );
     return self->inUse;
 }

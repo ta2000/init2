@@ -7,6 +7,7 @@
 struct Game
 {
     struct Engine* engine;
+    struct Terrain terrain;
     uint16_t keyStates[GLFW_KEY_LAST + 1];
     uint16_t numKeyStates;
     double then;
@@ -31,7 +32,7 @@ struct Mesh* GameGetMesh(
     const char* texturePath,
     const char* modelPath
 );
-void GameCreateTerrain(
+struct GameObject* GameCreateTerrain(
     struct Game* game,
     float* points,
     uint32_t numPoints,
@@ -39,6 +40,7 @@ void GameCreateTerrain(
 );
 float* GameGenerateTerrain(
     struct Game* game,
+    float tileSize,
     uint32_t* size,
     char* heightmap
 );

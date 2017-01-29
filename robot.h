@@ -42,6 +42,7 @@ void RobotInit(
 );
 _Bool RobotUpdate(
     struct Robot* self,
+    struct Terrain* terrain,
     double elapsed,
     uint16_t* keyStates
 );

@@ -18,6 +18,7 @@ void RobotPoolInit(
 );
 void RobotPoolUpdate(
     struct RobotPool* self,
+    struct Terrain* terrain,
     double elapsed,
     uint16_t* keys
 );

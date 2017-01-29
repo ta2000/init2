@@ -7,57 +7,59 @@
 #include <math.h>
 #include <time.h>
 
+#include "engine.h"
+#include "terrain.h"
 #include "bullet.h"
 #include "bulletpool.h"
 #include "robot.h"
 #include "robotpool.h"
-#include "engine.h"
 #include "game.h"
 
-void GameInit(struct Game* game)
+void GameInit(struct Game* self)
 {
     struct Engine* engine = calloc(1, sizeof(*engine));
     EngineInit(engine);
 
-    game->engine = engine;
-    game->engine->keyCallback = GameKeyPress;
-    game->engine->gameLoopCallback = GameLoop;
-    game->engine->userPointer = (void*)game;
+    self->engine = engine;
+    self->engine->keyCallback = GameKeyPress;
+    self->engine->gameLoopCallback = GameLoop;
+    self->engine->userPointer = (void*)self;
 
-    game->engine->camera.x = 5.0f;
-    game->engine->camera.y = 5.0f;
-    game->engine->camera.z = 5.0f;
-    game->engine->camera.angle = 0.0f;
+    self->engine->camera.x = 5.0f;
+    self->engine->camera.y = 5.0f;
+    self->engine->camera.z = 5.0f;
+    self->engine->camera.angle = 0.0f;
 
-    game->numKeyStates = (uint16_t)GLFW_KEY_LAST + 1;
+    self->numKeyStates = (uint16_t)GLFW_KEY_LAST + 1;
 
-    uint32_t terrainSize;
-    float* terrainMesh = GameGenerateTerrain(
-        game,
-        &terrainSize,
-        "assets/heightmaps/heightmap_small.bmp"
+    self->terrain.tileSize = 0.8f;
+    self->terrain.points = GameGenerateTerrain(
+        self,
+        self->terrain.tileSize,
+        &(self->terrain.quadsPerSide),
+        "assets/heightmaps/heightmap.bmp"
     );
-    GameCreateTerrain(
-        game,
-        terrainMesh,
-        terrainSize,
+    self->terrain.gameObject = GameCreateTerrain(
+        self,
+        self->terrain.points,
+        self->terrain.quadsPerSide,
         "assets/textures/grass.jpg"
     );
-    free(terrainMesh);
 
-    GameStart(game);
-    EngineRun(engine);
-    EngineDestroy(engine);
+    GameStart(self);
+    EngineRun(self->engine);
+    EngineDestroy(self->engine);
+    free(self->engine);
 
-    free(engine);
+    free(self->terrain.points);
 }
 
-void GameStart(struct Game* game)
+void GameStart(struct Game* self)
 {
     // Load bullet mesh
     struct Mesh* bulletMesh;
     bulletMesh = GameGetMesh(
-        game,
+        self,
         "assets/textures/bullet-texture.png",
         "assets/models/bullet.dae"
     );
@@ -68,15 +70,15 @@ void GameStart(struct Game* game)
     uint8_t i;
     for (i=0; i<GAME_NUM_BULLETS; i++)
     {
-        bulletObjects[i] = EngineCreateGameObject(game->engine, bulletMesh);
+        bulletObjects[i] = EngineCreateGameObject(self->engine, bulletMesh);
     }
-    BulletPoolInit(&(game->bulletPool), bulletObjects, GAME_NUM_BULLETS);
+    BulletPoolInit(&(self->bulletPool), bulletObjects, GAME_NUM_BULLETS);
     free(bulletObjects);
 
     // Load robot mesh
     struct Mesh* robotMesh;
     robotMesh = GameGetMesh(
-        game,
+        self,
         "assets/textures/robot-texture.png",
         "assets/models/robot.dae"
     );
@@ -86,102 +88,110 @@ void GameStart(struct Game* game)
     robotObjects = malloc(sizeof(struct GameObject*) * GAME_NUM_ROBOTS);
     for (i=0; i<GAME_NUM_ROBOTS; i++)
     {
-        robotObjects[i] = EngineCreateGameObject(game->engine, robotMesh);
+        robotObjects[i] = EngineCreateGameObject(self->engine, robotMesh);
     }
     RobotPoolInit(
-        &(game->robotPool),
+        &(self->robotPool),
         robotObjects,
         GAME_NUM_ROBOTS,
-        &(game->bulletPool)
+        &(self->bulletPool)
     );
     free(robotObjects);
 
     // Create robots
     for (i=0; i<GAME_NUM_ROBOTS; i++)
     {
-        RobotPoolCreate(&(game->robotPool), (float)i*10, 5.0f, 0.0f);
+        RobotPoolCreate(&(self->robotPool), (float)i*10, 5.0f, 0.0f);
     }
-    game->player = &(game->robotPool.robots[0]);
+    self->player = &(self->robotPool.robots[0]);
 
     // Record starting time
-    game->then = (double)clock();
+    self->then = (double)clock();
 }
 
 void GameLoop(void* gamePointer)
 {
-    struct Game* game = (struct Game*) gamePointer;
+    struct Game* self = (struct Game*) gamePointer;
 
     double currentTime = (double)clock();
-    double elapsed = ((double)(currentTime - game->then) / CLOCKS_PER_SEC) * 1000.0f;
+    double elapsed = ((double)(currentTime - self->then) / CLOCKS_PER_SEC) * 1000.0f;
 
-    GameUpdate(game, elapsed);
-    GameRender(game);
+    GameUpdate(self, elapsed);
+    GameRender(self);
 
-    game->then = currentTime;
+    self->then = currentTime;
 }
 
-void GameUpdate(struct Game* game, double elapsed)
+void GameUpdate(struct Game* self, double elapsed)
 {
-    RobotPoolUpdate(&(game->robotPool), elapsed, game->keyStates);
-    BulletPoolUpdate(&(game->bulletPool), elapsed);
-    GameUpdateCamera(game, elapsed);
+    RobotPoolUpdate(
+        &(self->robotPool),
+        &(self->terrain),
+        elapsed,
+        self->keyStates
+    );
+    BulletPoolUpdate(
+        &(self->bulletPool),
+        elapsed
+    );
+    GameUpdateCamera(self, elapsed);
 }
 
-void GameUpdateCamera(struct Game* game, double elapsed)
+void GameUpdateCamera(struct Game* self, double elapsed)
 {
-    if (game->player == NULL)
+    if (self->player == NULL)
         return;
 
-    struct Camera* camera = &(game->engine->camera);
-    float* playerPos = game->player->gameObject->position;
+    struct Camera* camera = &(self->engine->camera);
+    float* playerPos = self->player->gameObject->position;
 
-    camera->x = playerPos[0] + (sinf(game->player->rotation - 0.18f) * 8.0f);
-    camera->y = playerPos[1] + (cosf(game->player->rotation - 0.18f) * 8.0f);
-    camera->z = 7.5f;
+    camera->x = playerPos[0] + (sinf(self->player->rotation - 0.18f) * 8.0f);
+    camera->y = playerPos[1] + (cosf(self->player->rotation - 0.18f) * 8.0f);
+    camera->z = playerPos[2] + 7.5f;
 
-    camera->xTarget = camera->x - sinf(game->player->rotation);
-    camera->yTarget = camera->y - cosf(game->player->rotation);
+    camera->xTarget = camera->x - sinf(self->player->rotation);
+    camera->yTarget = camera->y - cosf(self->player->rotation);
     camera->zTarget = camera->z - 0.2f;
 }
 
-void GameRender(struct Game* game)
+void GameRender(struct Game* self)
 {
 
 }
 
 void GameKeyPress(void* userPointer, int key, int action)
 {
-    struct Game* game = (struct Game*)userPointer;
+    struct Game* self = (struct Game*)userPointer;
 
     if (key == GLFW_KEY_UNKNOWN)
         return;
 
     if (action == GLFW_PRESS)
     {
-        game->keyStates[key] = 1;
+        self->keyStates[key] = 1;
     }
     else if (action == GLFW_RELEASE)
     {
-        game->keyStates[key] = 0;
+        self->keyStates[key] = 0;
     }
 }
 
-struct Mesh* GameGetMesh(struct Game* game, const char* texturePath, const char* modelPath)
+struct Mesh* GameGetMesh(struct Game* self, const char* texturePath, const char* modelPath)
 {
     EngineCreateDescriptor(
-        game->engine,
-        &(game->engine->meshes[game->engine->meshCount].descriptor),
+        self->engine,
+        &(self->engine->meshes[self->engine->meshCount].descriptor),
         texturePath
     );
     EngineLoadModel(
-        game->engine,
+        self->engine,
         modelPath
     );
 
-    return &(game->engine->meshes[game->engine->meshCount-1]);
+    return &(self->engine->meshes[self->engine->meshCount-1]);
 }
 
-void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const char* texturePath)
+struct GameObject* GameCreateTerrain(struct Game* self, float* points, uint32_t size, const char* texturePath)
 {
     uint32_t numPoints = (size+1) * (size+1);
 
@@ -236,26 +246,29 @@ void GameCreateTerrain(struct Game* game, float* points, uint32_t size, const ch
     }
 
     EngineCreateDescriptor(
-        game->engine,
-        &(game->engine->meshes[game->engine->meshCount].descriptor),
+        self->engine,
+        &(self->engine->meshes[self->engine->meshCount].descriptor),
         texturePath
     );
     EngineCreateMesh(
-        game->engine,
+        self->engine,
         vertices, i,
         indices, indexCount
     );
     EngineCreateGameObject(
-        game->engine,
-        &(game->engine->meshes[game->engine->meshCount-1])
+        self->engine,
+        &(self->engine->meshes[self->engine->meshCount-1])
     );
 
     free(indices);
     free(vertices);
+
+    return &(self->engine->gameObjects[self->engine->gameObjectCount-1]);
 }
 
-float* GameGenerateTerrain(struct Game* game, uint32_t* size, char* heightmap)
+float* GameGenerateTerrain(struct Game* self, float tileSize, uint32_t* size, char* heightmap)
 {
+    // stb_image takes signed int parameters (for some reason)
     int texWidth, texHeight, texChannels;
     stbi_uc* pixels = stbi_load(
         heightmap,
@@ -277,19 +290,18 @@ float* GameGenerateTerrain(struct Game* game, uint32_t* size, char* heightmap)
     float* terrain;
     terrain = calloc(3*texWidth*texWidth, sizeof(*terrain));
 
-    float tileSize = 2;
     float xOffset = 0.0f;
     float yOffset = 0.0f;
 
     uint32_t pixelIndex = 0;
-    uint32_t i;
+    int i;
     for (i=0; i<3*texWidth*texWidth; i+=3)
     {
         uint32_t currentPoint = ((i/3)+1) % texWidth;
 
         terrain[i+0] = xOffset;
         terrain[i+1] = yOffset;
-        terrain[i+2] = ((float)pixels[pixelIndex])/4.0f;
+        terrain[i+2] = ((float)pixels[pixelIndex])/8.0f;
         //terrain[i+2] = 0.0f;//2 * (float)rand()/(float)RAND_MAX;
         pixelIndex+=4;
 

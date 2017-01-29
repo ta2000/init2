@@ -3,6 +3,7 @@
 #include <assert.h>
 
 #include "engine.h"
+#include "terrain.h"
 #include "robot.h"
 #include "robotpool.h"
 
@@ -29,12 +30,12 @@ void RobotPoolInit(struct RobotPool* self, struct GameObject** gameObjects, uint
         }
     }
 }
-void RobotPoolUpdate(struct RobotPool* self, double elapsed, uint16_t* keyStates)
+void RobotPoolUpdate(struct RobotPool* self, struct Terrain* terrain, double elapsed, uint16_t* keyStates)
 {
     uint8_t i;
     for (i=0; i<self->robotCount; i++)
     {
-        if (!RobotUpdate(&(self->robots[i]), elapsed, keyStates))
+        if (!RobotUpdate(&(self->robots[i]), terrain, elapsed, keyStates))
         {
             RobotPoolReturn(self, &(self->robots[i]));
         }

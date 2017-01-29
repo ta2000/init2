@@ -5,6 +5,7 @@
 #include <math.h>
 
 #include "engine.h"
+#include "terrain.h"
 #include "bullet.h"
 #include "bulletpool.h"
 
@@ -41,7 +42,7 @@ void RobotInit(struct Robot* self, struct GameObject* gameObject, struct BulletP
     self->playerControlled = 0;
 }
 
-_Bool RobotUpdate(struct Robot* self, double elapsed, uint16_t* keyStates)
+_Bool RobotUpdate(struct Robot* self, struct Terrain* terrain, double elapsed, uint16_t* keyStates)
 {
     // Not in use
     if (!self->inUse) return 0;
@@ -86,7 +87,7 @@ _Bool RobotUpdate(struct Robot* self, double elapsed, uint16_t* keyStates)
         self->velocity = -0.5f;
 
     // Handle collision
-
+    clampToTerrain(terrain, self->gameObject);
 
     // Transform object
     self->gameObject->rotation[2] = self->rotation;
