@@ -104,6 +104,7 @@ void GameStart(struct Game* self)
         RobotPoolCreate(&(self->robotPool), (float)i*10, 5.0f, 0.0f);
     }
     self->player = &(self->robotPool.robots[0]);
+    self->player->playerControlled = 1;
 
     // Record starting time
     self->then = (double)clock();

@@ -20,6 +20,7 @@ void RobotPoolInit(struct RobotPool* self, struct GameObject** gameObjects, uint
     {
         RobotInit(
             &(self->robots[i]),
+            self,
             gameObjects[i],
             bulletPool
         );
@@ -50,12 +51,7 @@ void RobotPoolCreate(struct RobotPool* self, float x, float y, float z)
 
     self->head->inUse = 1;
 
-    self->head->gameObject->position[0] = x;
-    self->head->gameObject->position[1] = y;
-    self->head->gameObject->position[2] = z;
-    self->head->hp = 100;
-    self->head->playerControlled = 1;
-    self->head->gameObject->visible = 1;
+    RobotCreate(self->head, x, y, z, 100);
 
     self->head = self->head->next;
 }
