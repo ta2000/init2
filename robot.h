@@ -25,7 +25,7 @@ struct Robot
     uint16_t actionKeyMap[ACTIONS_LAST];
 
     // Base traits
-    uint16_t hp;
+    uint8_t hp;
     double fireRate;
     double fireTimer;
     float shotSpeed;
@@ -39,6 +39,7 @@ struct Robot
     // AI only
     float targetRotation;
     struct Robot* target;
+    float targetDist;
     float moveX, moveY;
     float moveTimer;
 
@@ -57,7 +58,7 @@ void RobotCreate(
     float x,
     float y,
     float z,
-    float hp
+    uint8_t hp
 );
 _Bool RobotUpdate(
     struct Robot* self,

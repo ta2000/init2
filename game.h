@@ -1,7 +1,7 @@
 #ifndef GAME_H_
 #define GAME_H_
 
-#define GAME_NUM_ROBOTS 2
+#define GAME_NUM_ROBOTS 10
 #define GAME_NUM_BULLETS 100
 
 struct Game
