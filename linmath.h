@@ -18,6 +18,8 @@
  * Relicensed from the WTFPL (http://www.wtfpl.net/faq/).
  */
 
+// I HAVE ALTERED THIS FILE BY ADDING A FUNCTION
+
 #ifndef LINMATH_H
 #define LINMATH_H
 
