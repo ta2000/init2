@@ -205,6 +205,8 @@ static inline void mat4x4_from_vec3_mul_outer(mat4x4 M, vec3 a, vec3 b) {
         for (j = 0; j < 4; ++j)
             M[i][j] = i < 3 && j < 3 ? a[i] * b[j] : 0.f;
 }
+
+// I added this function for the record
 static inline void mat4x4_rotate_all(mat4x4 M, float x, float y, float z) {
     float a  = cosf(x);
     float b  = sinf(x);
@@ -229,6 +231,8 @@ static inline void mat4x4_rotate_all(mat4x4 M, float x, float y, float z) {
     M[0][3] = M[1][3] = M[2][3] = M[3][0] = M[3][1] = M[3][2] = 0;
     M[3][3] = 1.f;
 }
+// My additions stop here
+
 static inline void mat4x4_rotate(mat4x4 R, mat4x4 M, float x, float y, float z,
                                  float angle) {
     float s = sinf(angle);
